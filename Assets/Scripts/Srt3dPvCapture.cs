@@ -32,7 +32,16 @@ public class Srt3dPvCapture
     public string DiagIntr = "?";     // intrinsics 나오는지 진단
     public bool FlipHandedness = false; // transpose-only 전달 (flip 후보는 Srt3dTracker 가 계산·판별)
     // [TUNE] MFR SoftwareBitmap 이 좌우 미러라 conf=0 (PNG 로 확인). 좌우 flip + cx 반전으로 정합.
-    public bool FlipH = false, FlipV = false;   // 테스트: flip 제거 (문헌 "PV 미러 아님" 검증)
+    //
+    // 이력: 위 관찰로 FlipH=true 를 넣어 conf 가 살아났다(0.44 기록). 이후 문헌의
+    // "PV 는 미러가 아니다" 를 근거로 false 로 되돌리는 테스트를 했고, 그 뒤로 conf=0 이다.
+    // srt3d 입력(rgb/K/w,h/reset_pose)에 영향을 주는 변경은 이 플래그가 유일하므로
+    // 되돌려서 재확인한다. conf 가 살아나면 미러 가설 확정, 아니면 다른 곳을 봐야 한다.
+    //
+    // ⚠️ FlipH 와 cx 반전(:192)은 같은 플래그에 묶여 있어야 한다. 이미지만 뒤집고 cx 를 그대로
+    //    두면 주점이 반대편에 있는 셈이 되어 투영이 통째로 어긋난다.
+    //    (이미지+cx 를 함께 뒤집으면 평범한 우수 좌표계 핀홀 모델이 되므로 pose 에 미러는 남지 않는다.)
+    public bool FlipH = true, FlipV = false;
     // [DIAG] (B)stride: Stride 가 W4(=w*4)보다 크면 패딩 → CopyToBuffer 어긋나 이미지 사선 → conf=0
     public int Stride = 0, W4 = 0;
     public float NonzeroPct = 0f;     // rgb 유효 픽셀 % (0 근처면 검은/깨진 이미지)
