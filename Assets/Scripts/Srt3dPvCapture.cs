@@ -31,8 +31,25 @@ public class Srt3dPvCapture
     public bool Running = false, Opened = false;
     public string DiagIntr = "?";     // intrinsics 나오는지 진단
     public bool FlipHandedness = false; // transpose-only 전달 (flip 후보는 Srt3dTracker 가 계산·판별)
-    // [TUNE] MFR SoftwareBitmap 이 좌우 미러라 conf=0 (PNG 로 확인). 좌우 flip + cx 반전으로 정합.
-    public bool FlipH = false, FlipV = false;   // 테스트: flip 제거 (문헌 "PV 미러 아님" 검증)
+    // ⚠️ FlipH 를 켜지 말 것. 2026-07-22 기기 실측으로 반증됨.
+    //
+    // 예전 주석은 "MFR SoftwareBitmap 이 좌우 미러라 conf=0 (PNG 로 확인)" 이었으나 둘 다 틀렸다:
+    //   (1) "PNG 로 확인" — 그 PNG 는 DumpFrame 의 Texture2D.LoadRawTextureData + EncodeToPNG
+    //       경로라 Unity 텍스처가 bottom-up 이어서 **상하가 뒤집혀** 저장된다. 뒤집힌 글자를
+    //       거울상으로 오독한 것으로 보인다. 좌우 미러는 관측된 적이 없다.
+    //   (2) "conf=0" — 캡처 순간 객체가 시야 밖이었던 일시적 값이지 지속적 실패가 아니었다.
+    //
+    // FlipH=true 로 되살렸을 때의 실측 결과: **추적이 좌우 반대로 따라간다.**
+    // (물체를 오른쪽으로 옮기면 홀로그램이 왼쪽으로.) 수식으로도 정확히 그렇게 나온다 —
+    //   미러 이미지에서 물체는  u' = (w-1) - u = cx' - fx·X/Z   (cx' = (w-1) - cx)
+    //   srt3d 모델은            u' = fx·X'/Z' + cx'
+    //   ∴ X'/Z' = -X/Z          → 복원 pose 의 X 가 반전된다.
+    //
+    // 핵심: flip + cx 반전은 "전달 버퍼에 대한 서술"로는 일관되지만, 원본이 미러가 아닌데
+    // 적용하면 **미러된 뷰를 만들어낸다.** 미러 뷰는 어떤 강체 pose 로도 만들 수 없으므로
+    // srt3d 는 X 반전으로 억지 근사하게 되고, 그게 위 증상이다.
+    // 되살리려면 먼저 원본이 실제로 미러인지 증명할 것(글자가 있는 대상 + 상하 반전을 보정한 덤프).
+    public bool FlipH = false, FlipV = false;
     // [DIAG] (B)stride: Stride 가 W4(=w*4)보다 크면 패딩 → CopyToBuffer 어긋나 이미지 사선 → conf=0
     public int Stride = 0, W4 = 0;
     public float NonzeroPct = 0f;     // rgb 유효 픽셀 % (0 근처면 검은/깨진 이미지)
@@ -163,7 +180,7 @@ public class Srt3dPvCapture
             bmp.CopyToBuffer(buffer);
             byte[] bgra = buffer.ToArray();
             byte[] rgb = new byte[w * h * 3];
-            // BGRA→RGB (+ 좌우/상하 flip). MFR 는 좌우 미러라 FlipH=true 로 되돌림.
+            // BGRA→RGB (+ 좌우/상하 flip). MFR 는 미러가 아니므로 둘 다 false 가 정답 — 위 주석 참조.
             for (int y = 0; y < h; y++)
             {
                 int row = y * w;

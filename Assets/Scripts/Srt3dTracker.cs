@@ -209,8 +209,17 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         _dumpedFrame = true;
         try
         {
+            // ⚠️ Unity Texture2D 의 raw 데이터는 bottom-up(행 0 = 아래)인데 우리 rgb 버퍼는
+            //    top-down(행 0 = 위)이다. 그냥 넣으면 PNG 가 상하 반전돼 저장된다.
+            //    이 아티팩트 때문에 예전에 "좌우 미러"로 오독해 FlipH 를 켰다가 추적이 반대로
+            //    가는 버그를 만들었다(Srt3dPvCapture.cs 상단 주석 참조). 행을 뒤집어 넣는다.
+            byte[] flipped = new byte[rgb.Length];
+            int stride = w * 3;
+            for (int y = 0; y < h; y++)
+                System.Array.Copy(rgb, y * stride, flipped, (h - 1 - y) * stride, stride);
+
             var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
-            tex.LoadRawTextureData(rgb); tex.Apply();
+            tex.LoadRawTextureData(flipped); tex.Apply();
             byte[] png = tex.EncodeToPNG(); Destroy(tex);
             string p = Path.Combine(Application.persistentDataPath, "mfr_frame0.png");
             File.WriteAllBytes(p, png);
@@ -431,7 +440,10 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
                 // [DIAG] 1:obZ(카메라 앞/뒤)  B:stride/nz(이미지)  3:camPos vs rawT  + objW/head
                 string diag = "?";
 #if ENABLE_WINMD_SUPPORT
-                if (_pvCap != null) diag = $"fmt={_pvCap.DiagFmt} nz={_pvCap.NonzeroPct:F0}%";
+                // flip 상태를 HUD 에 띄운다 — 어느 빌드가 어느 flip 이었는지 캡처만으로 확정되게.
+                // (정상은 flip=--. flip=H- 가 보이면 추적이 좌우 반대로 가는 빌드다.)
+                if (_pvCap != null) diag = $"fmt={_pvCap.DiagFmt} nz={_pvCap.NonzeroPct:F0}% " +
+                                           $"flip={(_pvCap.FlipH ? "H" : "-")}{(_pvCap.FlipV ? "V" : "-")}";
 #endif
                 // [DIAG] 후보 3개의 objInHead 병기. 렌더는 B 고정 — 자동 선택 아님.
                 //   판정: objInHead.Z 가 obZ 와 부호·크기 맞는(양수, 카메라 앞) 후보가 정답.
