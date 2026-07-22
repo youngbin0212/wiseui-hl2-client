@@ -1,0 +1,43 @@
+# 기본: 자동 텍스트 정규화 (CRLF/LF 혼선 방지)
+* text=auto
+
+# ── Unity YAML (씬/프리팹/메타/에셋): 텍스트로 diff + UnityYAMLMerge 병합 ──
+*.meta       text merge=unityyamlmerge eol=lf
+*.unity      text merge=unityyamlmerge eol=lf
+*.prefab     text merge=unityyamlmerge eol=lf
+*.asset      text merge=unityyamlmerge eol=lf
+*.mat        text merge=unityyamlmerge eol=lf
+*.controller text merge=unityyamlmerge eol=lf
+*.physicMaterial text merge=unityyamlmerge eol=lf
+
+# ── 소스: LF 고정 ──
+*.cs   text diff=csharp eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+# Wavefront OBJ 는 텍스트 (model.obj 등). git 은 속성 줄 끝 주석을 지원하지 않으므로 별도 줄.
+*.obj  text eol=lf
+
+# ── 바이너리 (diff/merge 안 함) ──
+*.dll  binary
+*.so   binary
+*.a    binary
+*.lib  binary
+*.pfx  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.tga  binary
+*.psd  binary
+*.fbx  binary
+*.wav  binary
+*.mp3  binary
+*.ttf  binary
+*.otf  binary
+*.bytes binary
+
+# ── (선택) Git LFS: 큰 바이너리는 LFS 권장. git-lfs 설치 후 아래 주석 해제.
+#   git lfs install
+# *.dll   filter=lfs diff=lfs merge=lfs -text
+# *.fbx   filter=lfs diff=lfs merge=lfs -text
+# *.png   filter=lfs diff=lfs merge=lfs -text
