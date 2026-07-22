@@ -431,9 +431,7 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
                 // [DIAG] 1:obZ(카메라 앞/뒤)  B:stride/nz(이미지)  3:camPos vs rawT  + objW/head
                 string diag = "?";
 #if ENABLE_WINMD_SUPPORT
-                // flipH/V 를 HUD 에 띄운다 — 어느 빌드가 어느 flip 이었는지 캡처만으로 확정되게.
-                if (_pvCap != null) diag = $"fmt={_pvCap.DiagFmt} nz={_pvCap.NonzeroPct:F0}% " +
-                                           $"flip={(_pvCap.FlipH ? "H" : "-")}{(_pvCap.FlipV ? "V" : "-")}";
+                if (_pvCap != null) diag = $"fmt={_pvCap.DiagFmt} nz={_pvCap.NonzeroPct:F0}%";
 #endif
                 // [DIAG] 후보 3개의 objInHead 병기. 렌더는 B 고정 — 자동 선택 아님.
                 //   판정: objInHead.Z 가 obZ 와 부호·크기 맞는(양수, 카메라 앞) 후보가 정답.
