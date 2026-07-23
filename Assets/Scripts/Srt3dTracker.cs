@@ -98,7 +98,9 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         new Vector2(0.20f, 0.60f),   // 작게 (근접/작은 물체, 1.66)
     };
     int _boxPresetIdx = 0;           // 기본 = 검증값
-    float _centerBoxW = 0.25f, _centerBoxH = 0.70f;  // 현재 프리셋 (BOX_PRESETS[_boxPresetIdx])
+    float _boxBaseW = 0.40f;         // [TUNE] 박스 폭(정규화). 높이는 cam.aspect 로 시야 정사각 계산.
+    float _centerBoxW = 0.40f, _centerBoxH = 0.55f;  // 매 프레임 재계산됨
+    bool _startReq = false;          // 등록 시작 요청 (핀치 또는 음성 "start")
     Vector2 _boxCenterNorm = new Vector2(0.5f, 0.5f); // 박스 중심(이미지 정규화). gaze 있으면 gaze, 없으면 0.5
     bool _centerBoxMode = false;                   // (내부) 가운데박스 air-tap 분기용
     bool _drawMode = false;                         // (내부) 드래그-드로우 진행중
@@ -168,8 +170,13 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         try
         {
             _kw = new UnityEngine.Windows.Speech.KeywordRecognizer(
-                new[] { "toggle debug", "debug" });
-            _kw.OnPhraseRecognized += (args) => { _showDebug = !_showDebug; };
+                new[] { "toggle debug", "debug", "start", "register", "스타트" });
+            _kw.OnPhraseRecognized += (args) =>
+            {
+                string t = args.text.ToLower();
+                if (t == "toggle debug" || t == "debug") _showDebug = !_showDebug;
+                else _startReq = true;   // start / register / 스타트
+            };
             _kw.Start();
         }
         catch (System.Exception e) { Debug.LogWarning("[Srt3dTracker] voice init fail: " + e.Message); }
@@ -376,16 +383,25 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
     {
         while (_fpPose == null)
         {
+            // ── 시작 게이트: 등록이 곧바로 시작되지 않게. 핀치 또는 음성 "start"/"register" 대기.
+            _selecting = false; _centerBoxMode = false; _startReq = false; _wasPinch = false;
+            while (!_startReq)
+            {
+                if (PinchRising()) _startReq = true;
+                Hud("등록 시작하려면\n핀치 하거나 \"스타트\" 라고 말하세요");
+                yield return null;
+            }
+
             _boxReady = false; _wasPinch = false; _dwellT = 0f;
             _selecting = true; _centerBoxMode = true;   // LateUpdate 가 박스 그림
 
-            // 크기 고정(검증 프리셋). 크기 순환은 gaze 조준 중 손 움직임에 핀치가 오검출돼
-            // 널뛰던 문제로 제거. box+text 라 크기 여유는 관대 → 고정으로 충분.
-            _boxPresetIdx = 0;
-            _centerBoxW = BOX_PRESETS[0].x; _centerBoxH = BOX_PRESETS[0].y;
-
             while (!_boxReady)
             {
+                // 박스: 시야 기준 정사각형. 정규화 h = w × cam.aspect 라야 화면상 정사각(프레임 비율 보정).
+                Camera cam = _cam != null ? _cam : Camera.main;
+                _centerBoxW = _boxBaseW;
+                _centerBoxH = Mathf.Clamp01(_boxBaseW * (cam != null ? cam.aspect : 1f));
+
                 // 박스 위치: gaze 있으면 gaze, 없으면 화면 중앙.
                 _gazeForBox = TryGazeToImageNorm(out Vector2 gz);
                 _boxCenterNorm = _gazeForBox ? gz : new Vector2(0.5f, 0.5f);
@@ -958,22 +974,13 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
             var g = new GameObject("Srt3dBox");
             _boxLr = g.AddComponent<LineRenderer>();
             _boxLr.useWorldSpace = true; _boxLr.loop = true;
-            _boxLr.positionCount = 4; _boxLr.widthMultiplier = 0.006f;   // 더 굵게 (OST 가독)
+            _boxLr.positionCount = 4; _boxLr.widthMultiplier = 0.008f;   // 굵은 테두리 (OST 가독)
             var mat = new Material(_stdShader); SetupMat(mat, Color.yellow, false);
             _boxLr.material = mat;
-
-            // 반투명 채움 quad. OST 가산 디스플레이라 emission 이 강하면 하얗게 떠 물체를 가림
-            //   → emission 최소로 낮추고 알파블렌드만. 채움은 아주 옅게, 테두리로 위치를 읽게.
-            var fq = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            Destroy(fq.GetComponent<Collider>());
-            _boxFill = fq.GetComponent<MeshRenderer>();
-            var fmat = new Material(_stdShader);
-            SetupMat(fmat, new Color(0.2f, 0.9f, 1f, 0.10f), true);
-            fmat.SetColor("_EmissionColor", new Color(0.2f, 0.9f, 1f) * 0.12f);  // 옅게 (기본 0.8 → 0.12)
-            _boxFill.material = fmat;
+            // 채움(quad) 제거 — OST 가산 디스플레이에선 어떤 반투명 채움도 하얗게 떠 물체를 가림.
+            // 위치는 굵은 테두리로만 읽는다.
         }
         _boxLr.enabled = show;
-        if (_boxFill != null) _boxFill.enabled = show;
         if (!show || _cam == null) return;
 
         Vector2 c = (_centerBoxMode) ? _boxCenterNorm : (_dragA + _dragB) * 0.5f;
@@ -991,13 +998,6 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         float prog = _gazeForBox ? Mathf.Clamp01(_dwellT / _dwellSec) : 0f;
         Color edge = Color.Lerp(Color.yellow, Color.green, prog);
         _boxLr.startColor = _boxLr.endColor = edge;
-
-        if (_boxFill != null)
-        {
-            _boxFill.transform.position = (p00 + p11) * 0.5f;
-            _boxFill.transform.rotation = Quaternion.LookRotation(_cam.transform.forward, _cam.transform.up);
-            _boxFill.transform.localScale = new Vector3((p10 - p00).magnitude, (p01 - p00).magnitude, 1f);
-        }
     }
 
     // 이미지 정규화(top-left 원점) → 카메라 view plane(거리 d) world 점. y 뒤집어 viewport 로.
