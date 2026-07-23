@@ -111,7 +111,7 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
     // ── UI 상태 ─────────────────────────────────────────────────────────
     bool _showDebug = false;           // 디버그 HUD 토글 (음성 "toggle debug"). 기본 꺼짐.
     string _regStatus = "";            // 등록 단계 문구 (한 줄). 운용 중엔 미사용.
-    float _dwellSec = 1.0f;            // [TUNE] gaze dwell 확정 시간(초)
+    float _dwellSec = 3.0f;            // [TUNE] gaze dwell 확정 시간(초)
     float _dwellRadiusNorm = 0.06f;    // [TUNE] 이 반경(정규화) 안에 gaze 가 머물면 dwell 누적
     float _dwellT = 0f;                // 현재 dwell 누적
     Vector2 _dwellAnchor;              // dwell 시작 지점(정규화)
