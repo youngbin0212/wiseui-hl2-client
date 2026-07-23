@@ -379,11 +379,13 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
             _boxReady = false; _wasPinch = false; _dwellT = 0f;
             _selecting = true; _centerBoxMode = true;   // LateUpdate 가 박스 그림
 
+            // 크기 고정(검증 프리셋). 크기 순환은 gaze 조준 중 손 움직임에 핀치가 오검출돼
+            // 널뛰던 문제로 제거. box+text 라 크기 여유는 관대 → 고정으로 충분.
+            _boxPresetIdx = 0;
+            _centerBoxW = BOX_PRESETS[0].x; _centerBoxH = BOX_PRESETS[0].y;
+
             while (!_boxReady)
             {
-                var pre = BOX_PRESETS[_boxPresetIdx];
-                _centerBoxW = pre.x; _centerBoxH = pre.y;
-
                 // 박스 위치: gaze 있으면 gaze, 없으면 화면 중앙.
                 _gazeForBox = TryGazeToImageNorm(out Vector2 gz);
                 _boxCenterNorm = _gazeForBox ? gz : new Vector2(0.5f, 0.5f);
@@ -392,17 +394,15 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
 
                 if (_gazeForBox)
                 {
-                    // dwell: gaze 가 반경 안에 머물면 누적, 벗어나면 리셋.
+                    // dwell 만으로 확정 (핀치 안 씀 → 크기 안 바뀜).
                     if (_dwellT <= 0f) _dwellAnchor = _boxCenterNorm;
                     if ((_boxCenterNorm - _dwellAnchor).magnitude <= _dwellRadiusNorm)
                         _dwellT += Time.unscaledDeltaTime;
                     else { _dwellT = 0f; _dwellAnchor = _boxCenterNorm; }
 
-                    if (pinchRise) _boxPresetIdx = (_boxPresetIdx + 1) % BOX_PRESETS.Length; // 크기 순환
-                    if (_dwellT >= _dwellSec) _boxReady = true;                              // dwell 확정
-
+                    if (_dwellT >= _dwellSec) _boxReady = true;   // dwell 확정
                     int pct = Mathf.RoundToInt(Mathf.Clamp01(_dwellT / _dwellSec) * 100f);
-                    _regStatus = $"물체를 박스에 두고 응시  {pct}%\n(핀치=크기)";
+                    _regStatus = $"물체를 박스에 두고 응시  {pct}%";
                 }
                 else
                 {
@@ -962,12 +962,14 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
             var mat = new Material(_stdShader); SetupMat(mat, Color.yellow, false);
             _boxLr.material = mat;
 
-            // 반투명 채움 quad
+            // 반투명 채움 quad. OST 가산 디스플레이라 emission 이 강하면 하얗게 떠 물체를 가림
+            //   → emission 최소로 낮추고 알파블렌드만. 채움은 아주 옅게, 테두리로 위치를 읽게.
             var fq = GameObject.CreatePrimitive(PrimitiveType.Quad);
             Destroy(fq.GetComponent<Collider>());
             _boxFill = fq.GetComponent<MeshRenderer>();
             var fmat = new Material(_stdShader);
-            SetupMat(fmat, new Color(0.2f, 0.9f, 1f, 0.18f), true);   // 시안 반투명
+            SetupMat(fmat, new Color(0.2f, 0.9f, 1f, 0.10f), true);
+            fmat.SetColor("_EmissionColor", new Color(0.2f, 0.9f, 1f) * 0.12f);  // 옅게 (기본 0.8 → 0.12)
             _boxFill.material = fmat;
         }
         _boxLr.enabled = show;
