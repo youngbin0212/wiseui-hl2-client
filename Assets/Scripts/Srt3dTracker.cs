@@ -953,10 +953,13 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         if (_cam == null) _cam = Camera.main != null ? Camera.main : FindObjectOfType<Camera>();
         if (_cam == null) return;
         var c = _cam.transform;
-        // 시야 아래쪽 가장자리에 배치 (중앙은 물체 자리). 2m 거리, 머리에 느슨히 따라옴(Lerp).
+        // 시야 아래쪽에 배치하되 FOV 안(HL2 수직 반각 ~14.5°). 1.6m 앞 0.30m 아래 = ~11° → 안전.
+        //   (이전 2m/0.75m = 20° 는 화면 밖이라 안 보였음.)
         // 회전은 카메라 up 을 써서 항상 똑바로 — LookRotation 기본 up 은 머리 기울일 때 기울어 보임.
-        Vector3 target = c.position + c.forward * 2.0f - c.up * 0.75f;
-        _hud.transform.position = Vector3.Lerp(_hud.transform.position, target, 1f - Mathf.Exp(-8f * Time.unscaledDeltaTime));
+        Vector3 target = c.position + c.forward * 1.6f - c.up * 0.30f;
+        // 첫 프레임엔 원점(0,0,0)에서 Lerp 시작하면 뒤에 떴다가 날아옴 → 멀면 스냅.
+        if (Vector3.Distance(_hud.transform.position, target) > 3f) _hud.transform.position = target;
+        else _hud.transform.position = Vector3.Lerp(_hud.transform.position, target, 1f - Mathf.Exp(-10f * Time.unscaledDeltaTime));
         _hud.transform.rotation = Quaternion.LookRotation(_hud.transform.position - c.position, c.up);
         UpdateBoxVisual();
     }
