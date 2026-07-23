@@ -978,10 +978,17 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
             _boxLr.positionCount = 4; _boxLr.widthMultiplier = 0.008f;   // 굵은 테두리 (OST 가독)
             var mat = new Material(_stdShader); SetupMat(mat, Color.yellow, false);
             _boxLr.material = mat;
-            // 채움(quad) 제거 — OST 가산 디스플레이에선 어떤 반투명 채움도 하얗게 떠 물체를 가림.
-            // 위치는 굵은 테두리로만 읽는다.
+
+            // 채움 quad 복원 — 테두리만으론 안 보인다는 피드백. 흰 반투명(잘 보이던 원래 것).
+            var fq = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            Destroy(fq.GetComponent<Collider>());
+            _boxFill = fq.GetComponent<MeshRenderer>();
+            var fmat = new Material(_stdShader);
+            SetupMat(fmat, new Color(1f, 1f, 1f, 0.22f), true);   // 흰 반투명
+            _boxFill.material = fmat;
         }
         _boxLr.enabled = show;
+        if (_boxFill != null) _boxFill.enabled = show;
         if (!show || _cam == null) return;
 
         Vector2 c = (_centerBoxMode) ? _boxCenterNorm : (_dragA + _dragB) * 0.5f;
@@ -999,6 +1006,14 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         float prog = _gazeForBox ? Mathf.Clamp01(_dwellT / _dwellSec) : 0f;
         Color edge = Color.Lerp(Color.yellow, Color.green, prog);
         _boxLr.startColor = _boxLr.endColor = edge;
+
+        // 흰 채움 quad — 카메라 향해, 박스 크기로.
+        if (_boxFill != null)
+        {
+            _boxFill.transform.position = (p00 + p11) * 0.5f;
+            _boxFill.transform.rotation = Quaternion.LookRotation(_cam.transform.forward, _cam.transform.up);
+            _boxFill.transform.localScale = new Vector3((p10 - p00).magnitude, (p01 - p00).magnitude, 1f);
+        }
     }
 
     // 이미지 정규화(top-left 원점) → 카메라 view plane(거리 d) world 점. y 뒤집어 viewport 로.
