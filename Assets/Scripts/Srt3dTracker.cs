@@ -376,17 +376,20 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
     //   fallback(머리 조준)에선 핀치가 확정. 어느 쪽이든 POST /init_box (box+text='book').
     IEnumerator CenterBoxRegister()
     {
+        // ── 시작 게이트: 앱 시작 후 10초 자동 시작(핀치 감지 불안정 → 시간 기반). 핀치로 조기 시작 가능.
+        //    한 번만. 등록 실패 재시도는 곧바로 조준으로 돌아간다.
+        _selecting = false; _centerBoxMode = false; _wasPinch = false;
+        float t = 10f;
+        while (t > 0f)
+        {
+            if (PinchRising()) break;   // 핀치 되면 즉시 시작
+            Hud($"등록 {Mathf.CeilToInt(t)}초 후 자동 시작\n(물체를 시야 중앙에 두세요)");
+            t -= Time.unscaledDeltaTime;
+            yield return null;
+        }
+
         while (_fpPose == null)
         {
-            // ── 시작 게이트: 등록이 곧바로 시작되지 않게. 핀치로 시작.
-            _selecting = false; _centerBoxMode = false; _startReq = false; _wasPinch = false;
-            while (!_startReq)
-            {
-                if (PinchRising()) _startReq = true;
-                Hud("등록 시작하려면 핀치(검지+엄지)");
-                yield return null;
-            }
-
             _boxReady = false; _wasPinch = false; _dwellT = 0f;
             _selecting = true; _centerBoxMode = true;   // LateUpdate 가 박스 그림
 
