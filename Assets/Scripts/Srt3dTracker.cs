@@ -88,8 +88,18 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
     //   DragDraw   = 핀치로 한 모서리→반대 모서리 드래그해 박스 직접 그림 (POST /init_box)
     enum InitMode { TextCenter, CenterBox, CropPinch, DragDraw }
     InitMode _initMode = InitMode.CenterBox;
-    // 가운데 정사각형 박스: 폭만 [TUNE], 높이는 이미지 종횡비(16:9)로 계산해 픽셀상 정사각형.
-    float _centerBoxW = 0.4f, _centerBoxH = 0.5f;  // _centerBoxH 는 CenterBoxRegister 에서 재계산
+    // 세로 박스 프리셋 (정규화 w,h). 정사각 폐기 — 실측(2026-07-22): 세로로 긴 물체에 정사각
+    // 박스를 씌우면 좌우 테이블이 절반이라 SAM 이 배경을 잡음(채움 24%). 세로 박스는 74%+.
+    // 박스는 정밀 조준이 아니라 '대충 여기 + 어느 물체'(text 가 판별) 용도라 크기 여유는 관대.
+    //   pinch = 크기 순환 (gaze 확정 모드일 때). fallback(머리조준) 모드에선 pinch = 확정.
+    static readonly Vector2[] BOX_PRESETS = {
+        new Vector2(0.25f, 0.70f),   // ★ 실측 검증값 (프로브 vert, 채움 74%). 픽셀종횡비 1.575
+        new Vector2(0.30f, 0.80f),   // 조금 크게 (같은 길쭉함 유지, 1.51)
+        new Vector2(0.20f, 0.60f),   // 작게 (근접/작은 물체, 1.66)
+    };
+    int _boxPresetIdx = 0;           // 기본 = 검증값
+    float _centerBoxW = 0.25f, _centerBoxH = 0.70f;  // 현재 프리셋 (BOX_PRESETS[_boxPresetIdx])
+    Vector2 _boxCenterNorm = new Vector2(0.5f, 0.5f); // 박스 중심(이미지 정규화). gaze 있으면 gaze, 없으면 0.5
     bool _centerBoxMode = false;                   // (내부) 가운데박스 air-tap 분기용
     bool _drawMode = false;                         // (내부) 드래그-드로우 진행중
     Vector2 _dragA, _dragB;                         // 박스 미리보기 두 모서리(이미지 정규화)
@@ -97,7 +107,19 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
     // [DIAG/입력] 핀치 감지 진단·폴백. MRTK 전역 클릭이 안 오면 손관절 거리로 직접 핀치 검출.
     int _clickCount = 0, _pinchCount = 0; bool _wasPinch = false; float _pinchDist = -1f;
     float _pinchOn = 0.03f, _pinchOff = 0.05f;     // [TUNE] 핀치 on/off 임계(히스테리시스, m)
-    string _boxText = "";       // 옵션 semantic 프롬프트(box 안 객체). 비우면 순수 box.
+    string _boxText = "book";   // semantic 프롬프트. text 가 마스크를 잡아주고 box 는 영역 지정(판별)만.
+    // ── UI 상태 ─────────────────────────────────────────────────────────
+    bool _showDebug = false;           // 디버그 HUD 토글 (음성 "toggle debug"). 기본 꺼짐.
+    string _regStatus = "";            // 등록 단계 문구 (한 줄). 운용 중엔 미사용.
+    float _dwellSec = 1.0f;            // [TUNE] gaze dwell 확정 시간(초)
+    float _dwellRadiusNorm = 0.06f;    // [TUNE] 이 반경(정규화) 안에 gaze 가 머물면 dwell 누적
+    float _dwellT = 0f;                // 현재 dwell 누적
+    Vector2 _dwellAnchor;              // dwell 시작 지점(정규화)
+    bool _gazeForBox = false;          // 이번 프레임 박스 위치를 gaze 로 잡았나(진단/분기)
+    MeshRenderer _boxFill;             // 박스 반투명 채움(quad)
+#if !UNITY_EDITOR
+    UnityEngine.Windows.Speech.KeywordRecognizer _kw;   // 음성 "toggle debug"
+#endif
 
     // 두 모서리 air-tap 수집 상태 (인터페이스 콜백에서 채움). 이미지 정규화(원점 top-left) 좌표.
     readonly List<Vector2> _corners = new List<Vector2>();
@@ -133,8 +155,25 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         var cube = GameObject.Find("Cube");           // SampleScene 튜토리얼 큐브 — 불필요, 끔
         if (cube != null) cube.SetActive(false);
         _hud = CreateHud(); _target = CreateTarget();
+        SetupVoice();
         Hud("srt3d: copying model...");
         StartCoroutine(Boot());
+    }
+
+    // 음성 "toggle debug" → 디버그 HUD on/off. MRTK Speech 프로필(read-only)에 의존하지 않도록
+    // Windows 음성 API(KeywordRecognizer)를 직접 쓴다. 손 안 써도 등록 중에 켜고 끌 수 있음.
+    void SetupVoice()
+    {
+#if !UNITY_EDITOR
+        try
+        {
+            _kw = new UnityEngine.Windows.Speech.KeywordRecognizer(
+                new[] { "toggle debug", "debug" });
+            _kw.OnPhraseRecognized += (args) => { _showDebug = !_showDebug; };
+            _kw.Start();
+        }
+        catch (System.Exception e) { Debug.LogWarning("[Srt3dTracker] voice init fail: " + e.Message); }
+#endif
     }
 
     IEnumerator Boot()
@@ -316,40 +355,83 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         }
     }
 
-    // 가운데 고정 정사각형 박스 등록: 객체를 중앙 박스에 맞추고 핀치(탭) 1회 → POST /init_box.
+    // gaze ray → 헤드 카메라 뷰포트 → 이미지 정규화(top-left). 등록 중엔 MFR/PV K 가 없어
+    // PV 픽셀 투영을 못 하므로, 헤드 카메라 뷰포트 근사를 쓴다(box+text 라 이 오차는 관대).
+    bool TryGazeToImageNorm(out Vector2 img)
+    {
+        img = new Vector2(0.5f, 0.5f);
+        Camera cam = _cam != null ? _cam : Camera.main;
+        if (cam == null) return false;
+        if (!TryGetXrGazeRay(out Vector3 oW, out Vector3 dW, out _)) return false;
+        Vector3 vp = cam.WorldToViewportPoint(oW + dW * 1.0f);
+        if (vp.z <= 0f) return false;
+        img = new Vector2(Mathf.Clamp01(vp.x), Mathf.Clamp01(1f - vp.y));  // viewport(y↑) → 이미지(y↓)
+        return true;
+    }
+
+    // 세로 박스 등록: gaze 로 박스를 물체에 얹고 dwell(1s)로 확정. gaze 없으면 머리 중앙 + 핀치.
+    //   박스 크기는 프리셋(세로) 순환 — gaze 모드에선 핀치가 크기 순환, 확정은 dwell.
+    //   fallback(머리 조준)에선 핀치가 확정. 어느 쪽이든 POST /init_box (box+text='book').
     IEnumerator CenterBoxRegister()
     {
-        // 정사각형: 높이(정규화) = 폭 × 이미지 종횡비(W/H≈16:9). 픽셀상 정사각형이 되도록.
-        _centerBoxH = Mathf.Clamp01(_centerBoxW * (float)_pvWidth / _pvHeight);
         while (_fpPose == null)
         {
-            _boxReady = false; _wasPinch = false;
-            RegisterPointer();
-            _selecting = true; _centerBoxMode = true;       // LateUpdate 가 중앙 박스 그림
-            // 매 프레임: 포인터 재등록 시도 + 핀치 폴링 + 진단 HUD.
-            // [DIAG] reg=핸들러 등록됨? click=MRTK 전역클릭 수 pinch=손관절 핀치 수 d=엄지-검지 거리(m).
-            //  - reg=N → InputSystem null(MRTK 미초기화) → 다른 입력 필요
-            //  - click=0 인데 pinch 로 등록되면 → 전역클릭 문제, 핀치폴백이 해결
-            //  - d=n/a → 손 미추적(손을 카메라 시야에)
+            _boxReady = false; _wasPinch = false; _dwellT = 0f;
+            _selecting = true; _centerBoxMode = true;   // LateUpdate 가 박스 그림
+
             while (!_boxReady)
             {
-                if (!_handlerRegistered) RegisterPointer();
-                PollPinch();
-                Hud($"가운데 정사각형 박스 등록\n객체를 노란 박스에 맞추고 핀치(검지+엄지)\n" +
-                    $"[pinch={_pinchCount} d={(_pinchDist < 0f ? "n/a(손을 시야에)" : _pinchDist.ToString("F3"))}]\n" +
-                    // [gaze] 등록 단계에선 PV K 가 없어 dev/fix/pos 만 유효 (gaze noK 로 뜸)
-                    $"{_gazeHud}\n{_gazeMrtkHud}");
+                var pre = BOX_PRESETS[_boxPresetIdx];
+                _centerBoxW = pre.x; _centerBoxH = pre.y;
+
+                // 박스 위치: gaze 있으면 gaze, 없으면 화면 중앙.
+                _gazeForBox = TryGazeToImageNorm(out Vector2 gz);
+                _boxCenterNorm = _gazeForBox ? gz : new Vector2(0.5f, 0.5f);
+
+                bool pinchRise = PinchRising();
+
+                if (_gazeForBox)
+                {
+                    // dwell: gaze 가 반경 안에 머물면 누적, 벗어나면 리셋.
+                    if (_dwellT <= 0f) _dwellAnchor = _boxCenterNorm;
+                    if ((_boxCenterNorm - _dwellAnchor).magnitude <= _dwellRadiusNorm)
+                        _dwellT += Time.unscaledDeltaTime;
+                    else { _dwellT = 0f; _dwellAnchor = _boxCenterNorm; }
+
+                    if (pinchRise) _boxPresetIdx = (_boxPresetIdx + 1) % BOX_PRESETS.Length; // 크기 순환
+                    if (_dwellT >= _dwellSec) _boxReady = true;                              // dwell 확정
+
+                    int pct = Mathf.RoundToInt(Mathf.Clamp01(_dwellT / _dwellSec) * 100f);
+                    _regStatus = $"물체를 박스에 두고 응시  {pct}%\n(핀치=크기)";
+                }
+                else
+                {
+                    // 폴백: 머리로 조준, 핀치로 확정.
+                    if (pinchRise) _boxReady = true;
+                    _regStatus = "물체를 박스에 맞추고 핀치\n(시선 추적 대기 중)";
+                }
+                Hud(_regStatus);
                 yield return null;
             }
-            _selecting = false; _centerBoxMode = false; UnregisterPointer();
-            Hud("등록 중...\n(머리를 움직이지 마세요)");
-            yield return PostBox(new float[] { 0.5f, 0.5f, _centerBoxW, _centerBoxH });
+            _selecting = false; _centerBoxMode = false;
+            Hud("등록 중… 머리를 움직이지 마세요");
+            yield return PostBox(new float[] { _boxCenterNorm.x, _boxCenterNorm.y, _centerBoxW, _centerBoxH });
             if (_fpPose == null)
             {
-                Hud("등록 실패 — 다시 핀치 하세요\n(서버 확인)");
-                yield return new WaitForSeconds(2f);
+                Hud("등록 실패 — 다시 시도");
+                yield return new WaitForSeconds(1.5f);
             }
         }
+        Hud("등록 완료");
+    }
+
+    // 핀치 상승엣지 (히스테리시스). 크기 순환/확정 공용.
+    bool PinchRising()
+    {
+        bool p = IsPinching(out _pinchDist);
+        bool rise = p && !_wasPinch;
+        _wasPinch = p;
+        return rise;
     }
 
     // 두 번 탭(핀치) 등록: 한 모서리에서 핀치(탭) → 반대 모서리에서 핀치(탭) → 확정 → POST /init_box.
@@ -437,21 +519,24 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
             if (_frame % 5 == 0)
             {
                 float avg = _trackElapsed > 0.5f ? _frame / _trackElapsed : 0f;
-                // [DIAG] 1:obZ(카메라 앞/뒤)  B:stride/nz(이미지)  3:camPos vs rawT  + objW/head
-                string diag = "?";
+                if (!_showDebug)
+                {
+                    // 운용 중: 한 줄. 이게 전부.
+                    Hud($"conf={_conf:F2}  fps={avg:F0}");
+                }
+                else
+                {
+                    // 디버그 (음성 "toggle debug"): 전체 진단.
+                    string diag = "?";
 #if ENABLE_WINMD_SUPPORT
-                // flip 상태를 HUD 에 띄운다 — 어느 빌드가 어느 flip 이었는지 캡처만으로 확정되게.
-                // (정상은 flip=--. flip=H- 가 보이면 추적이 좌우 반대로 가는 빌드다.)
-                if (_pvCap != null) diag = $"fmt={_pvCap.DiagFmt} nz={_pvCap.NonzeroPct:F0}% " +
-                                           $"flip={(_pvCap.FlipH ? "H" : "-")}{(_pvCap.FlipV ? "V" : "-")}";
+                    if (_pvCap != null) diag = $"fmt={_pvCap.DiagFmt} nz={_pvCap.NonzeroPct:F0}% " +
+                                               $"flip={(_pvCap.FlipH ? "H" : "-")}{(_pvCap.FlipV ? "V" : "-")}";
 #endif
-                // [DIAG] 후보 3개의 objInHead 병기. 렌더는 B 고정 — 자동 선택 아님.
-                //   판정: objInHead.Z 가 obZ 와 부호·크기 맞는(양수, 카메라 앞) 후보가 정답.
-                //   A/B 는 translation 동일(뒤 C 는 회전에만 영향) → mesh 방향/거울상은 축 삼각대로 읽기.
-                Hud($"conf={_conf:F2} obZ={_obZ:F2} fps={avg:F0} f={_frame}\n" +
-                    $"proj({_projU:F0},{_projV:F0}) img {_mfrW}x{_mfrH}\n" +
-                    $"A{Oih(_candA)}\nB{Oih(_candB)} <-render\nD{Oih(_candD)}\n" +
-                    $"{_gazeHud}\n{_gazeMrtkHud}\n{diag}");
+                    Hud($"conf={_conf:F2} obZ={_obZ:F2} fps={avg:F0} f={_frame}\n" +
+                        $"proj({_projU:F0},{_projV:F0}) img {_mfrW}x{_mfrH}\n" +
+                        $"A{Oih(_candA)}\nB{Oih(_candB)} <-render\nD{Oih(_candD)}\n" +
+                        $"{_gazeHud}\n{diag}");
+                }
             }
         }
     }
@@ -520,26 +605,41 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
             UnityEngine.XR.InputDeviceCharacteristics.EyeTracking, _xrEyeDevs);
         int nDev = _xrEyeDevs.Count;
         if (nDev == 0) { tag = "dev=0"; return false; }
+        var dev = _xrEyeDevs[0];
 
-        UnityEngine.XR.Eyes eyes;
-        if (!_xrEyeDevs[0].TryGetFeatureValue(UnityEngine.XR.CommonUsages.eyesData, out eyes))
-        { tag = $"dev={nDev} eyesData=N"; return false; }
+        Vector3 oT, dT;
 
-        // fixation point 만으론 방향을 못 만든다 — 원점이 필요해서 눈 위치도 같이 읽는다.
-        // 셋 중 하나라도 실패하면 INVALID(부분 데이터로 그럴듯하게 틀린 ray 를 만들지 않는다).
-        Vector3 fix, lPos, rPos;
-        bool okFix = eyes.TryGetFixationPoint(out fix);
-        bool okL = eyes.TryGetLeftEyePosition(out lPos);
-        bool okR = eyes.TryGetRightEyePosition(out rPos);
-        if (!okFix || !okL || !okR)
+        // [A-4] 주 경로: OpenXR eye gaze pose (devicePosition/deviceRotation).
+        //   MRTK/OpenXR provider 가 Windows-MR 식 Eyes 구조체(eyesData)를 안 채워서 eyesData=N 이었다.
+        //   OpenXR 표준 eye gaze interaction 은 gaze 를 '디바이스 pose'(pos+rot)로 노출한다 →
+        //   forward = rot * +Z 가 시선 방향. 이게 우리가 쓸 값.
+        Vector3 gpos; Quaternion grot;
+        bool okPos = dev.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out gpos);
+        bool okRot = dev.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out grot);
+        if (okPos && okRot && grot.normalized != new Quaternion(0, 0, 0, 0))
         {
-            tag = $"dev={nDev} fix={(okFix ? "Y" : "N")} pos={((okL && okR) ? "Y" : okL ? "L" : okR ? "R" : "N")}";
-            return false;
+            oT = gpos;
+            dT = grot * Vector3.forward;
         }
-
-        Vector3 oT = (lPos + rPos) * 0.5f;
-        Vector3 dT = fix - oT;
-        if (dT.sqrMagnitude < 1e-8f) { tag = $"dev={nDev} fix=Y pos=Y deg(fix==eye)"; return false; }
+        else
+        {
+            // 폴백: Windows-MR 식 Eyes 구조체 (구형 provider).
+            UnityEngine.XR.Eyes eyes;
+            if (!dev.TryGetFeatureValue(UnityEngine.XR.CommonUsages.eyesData, out eyes))
+            { tag = $"dev={nDev} pose=N eyesData=N"; return false; }
+            Vector3 fix, lPos, rPos;
+            bool okFix = eyes.TryGetFixationPoint(out fix);
+            bool okL = eyes.TryGetLeftEyePosition(out lPos);
+            bool okR = eyes.TryGetRightEyePosition(out rPos);
+            if (!okFix || !okL || !okR)
+            {
+                tag = $"dev={nDev} pose=N fix={(okFix ? "Y" : "N")} pos={((okL && okR) ? "Y" : "N")}";
+                return false;
+            }
+            oT = (lPos + rPos) * 0.5f;
+            dT = fix - oT;
+        }
+        if (dT.sqrMagnitude < 1e-8f) { tag = $"dev={nDev} deg(dir=0)"; return false; }
 
         // tracking(playspace) → world
         Camera cam = _cam != null ? _cam : (Camera.main != null ? Camera.main : FindObjectOfType<Camera>());
@@ -759,12 +859,15 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         }
     }
 
+    // [TUNE] HUD 색: 시안 기본. 흰색 시험하려면 Color.white 로.
+    Color _hudColor = Color.cyan;
     TextMesh CreateHud()
     {
         var go = new GameObject("Srt3dHud");
         var tm = go.AddComponent<TextMesh>();
-        tm.characterSize = 0.0055f; tm.fontSize = 100;   // 작게 → 긴 줄(fps 등) 안 잘리게
-        tm.anchor = TextAnchor.MiddleCenter; tm.alignment = TextAlignment.Center; tm.color = Color.cyan;
+        tm.characterSize = 0.0075f; tm.fontSize = 120;
+        tm.fontStyle = FontStyle.Bold;                    // OST 에선 얇은 획이 사라짐 → 굵게
+        tm.anchor = TextAnchor.UpperCenter; tm.alignment = TextAlignment.Center; tm.color = _hudColor;
         return tm;
     }
 
@@ -836,44 +939,63 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         if (_cam == null) _cam = Camera.main != null ? Camera.main : FindObjectOfType<Camera>();
         if (_cam == null) return;
         var c = _cam.transform;
-        // 매 프레임 머리 1.2m 앞에 head-lock (한 번 배치 → 시야 밖 이탈 방지).
-        _hud.transform.position = c.position + c.forward * 1.2f;
-        _hud.transform.rotation = Quaternion.LookRotation(_hud.transform.position - c.position);
+        // 시야 아래쪽 가장자리에 배치 (중앙은 물체 자리). 2m 거리, 머리에 느슨히 따라옴(Lerp).
+        // 회전은 카메라 up 을 써서 항상 똑바로 — LookRotation 기본 up 은 머리 기울일 때 기울어 보임.
+        Vector3 target = c.position + c.forward * 2.0f - c.up * 0.75f;
+        _hud.transform.position = Vector3.Lerp(_hud.transform.position, target, 1f - Mathf.Exp(-8f * Time.unscaledDeltaTime));
+        _hud.transform.rotation = Quaternion.LookRotation(_hud.transform.position - c.position, c.up);
         UpdateBoxVisual();
     }
 
-    // 박스 시각화(가운데/드로우 공용): 선택 중 카메라 1m 앞 view plane 에 노란 사각형(head-lock).
-    // 두 모서리(이미지 정규화)를 ViewportToWorldPoint 로 world 사각형에 환산 — 조준/그리기 가이드.
+    // 박스 시각화: 카메라 1m 앞 view plane 에 세로 사각형. 반투명 채움(quad) + 밝은 테두리(line).
+    //   중심 = _boxCenterNorm (gaze 있으면 gaze, 없으면 0.5). 크기 = 현재 프리셋(세로).
+    //   dwell 진행에 따라 테두리 색이 노랑→초록으로 차오름(발사 시점 예측 가능하게).
     void UpdateBoxVisual()
     {
         bool show = _selecting && (_centerBoxMode || _drawMode);
         if (_boxLr == null)
         {
-            if (!show) return;
             var g = new GameObject("Srt3dBox");
             _boxLr = g.AddComponent<LineRenderer>();
             _boxLr.useWorldSpace = true; _boxLr.loop = true;
-            _boxLr.positionCount = 4; _boxLr.widthMultiplier = 0.004f;
-            var col0 = new Color(1f, 0.9f, 0.2f);
-            var mat = new Material(_stdShader); SetupMat(mat, col0, false);
-            _boxLr.material = mat; _boxLr.startColor = _boxLr.endColor = col0;
+            _boxLr.positionCount = 4; _boxLr.widthMultiplier = 0.006f;   // 더 굵게 (OST 가독)
+            var mat = new Material(_stdShader); SetupMat(mat, Color.yellow, false);
+            _boxLr.material = mat;
+
+            // 반투명 채움 quad
+            var fq = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            Destroy(fq.GetComponent<Collider>());
+            _boxFill = fq.GetComponent<MeshRenderer>();
+            var fmat = new Material(_stdShader);
+            SetupMat(fmat, new Color(0.2f, 0.9f, 1f, 0.18f), true);   // 시안 반투명
+            _boxFill.material = fmat;
         }
         _boxLr.enabled = show;
+        if (_boxFill != null) _boxFill.enabled = show;
         if (!show || _cam == null) return;
 
-        // 그릴 두 모서리(이미지 정규화). 가운데=고정, 드로우=드래그(시작 전엔 검지끝 작은 박스).
-        Vector2 a, b;
-        if (_centerBoxMode)
-        {
-            a = new Vector2(0.5f - _centerBoxW * 0.5f, 0.5f - _centerBoxH * 0.5f);
-            b = new Vector2(0.5f + _centerBoxW * 0.5f, 0.5f + _centerBoxH * 0.5f);
-        }
-        else { a = _dragA; b = _dragB; }   // 드로우: UpdateTwoTap 이 유지(모서리1 전엔 손끝 커서)
+        Vector2 c = (_centerBoxMode) ? _boxCenterNorm : (_dragA + _dragB) * 0.5f;
+        float hw = _centerBoxW * 0.5f, hh = _centerBoxH * 0.5f;
+        if (!_centerBoxMode) { hw = Mathf.Abs(_dragB.x - _dragA.x) * 0.5f; hh = Mathf.Abs(_dragB.y - _dragA.y) * 0.5f; }
+        float ax = Mathf.Clamp01(c.x - hw), bx = Mathf.Clamp01(c.x + hw);
+        float ay = Mathf.Clamp01(c.y - hh), by = Mathf.Clamp01(c.y + hh);
         const float d = 1.0f;
-        _boxLr.SetPosition(0, ImgNormToWorld(a.x, a.y, d));
-        _boxLr.SetPosition(1, ImgNormToWorld(b.x, a.y, d));
-        _boxLr.SetPosition(2, ImgNormToWorld(b.x, b.y, d));
-        _boxLr.SetPosition(3, ImgNormToWorld(a.x, b.y, d));
+        Vector3 p00 = ImgNormToWorld(ax, ay, d), p10 = ImgNormToWorld(bx, ay, d);
+        Vector3 p11 = ImgNormToWorld(bx, by, d), p01 = ImgNormToWorld(ax, by, d);
+        _boxLr.SetPosition(0, p00); _boxLr.SetPosition(1, p10);
+        _boxLr.SetPosition(2, p11); _boxLr.SetPosition(3, p01);
+
+        // dwell 진행 → 테두리 색 (노랑→초록)
+        float prog = _gazeForBox ? Mathf.Clamp01(_dwellT / _dwellSec) : 0f;
+        Color edge = Color.Lerp(Color.yellow, Color.green, prog);
+        _boxLr.startColor = _boxLr.endColor = edge;
+
+        if (_boxFill != null)
+        {
+            _boxFill.transform.position = (p00 + p11) * 0.5f;
+            _boxFill.transform.rotation = Quaternion.LookRotation(_cam.transform.forward, _cam.transform.up);
+            _boxFill.transform.localScale = new Vector3((p10 - p00).magnitude, (p01 - p00).magnitude, 1f);
+        }
     }
 
     // 이미지 정규화(top-left 원점) → 카메라 view plane(거리 d) world 점. y 뒤집어 viewport 로.
@@ -997,6 +1119,7 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
     void OnDestroy()
     {
         UnregisterPointer();
+        try { if (_kw != null) { if (_kw.IsRunning) _kw.Stop(); _kw.Dispose(); _kw = null; } } catch { }
 #if ENABLE_WINMD_SUPPORT
         if (_pvCap != null) _pvCap.Stop();
 #endif
