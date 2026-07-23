@@ -382,6 +382,12 @@ public static extern int srt3d_reset_pose(float[] pose16);
 ```
 **반환**: `1`=성공, `0`=미초기화/널.
 
+> **[2026-07-23] 회복 부스트 (시그니처 불변, 내부 동작만 추가).** `reset_pose` 호출 직후
+> **12프레임 동안** 탐색을 넓힌다: `scales {12,8,5,3,2,1}` + `n_corr=30` → basin ~228px.
+> 이후 평소값(`{5,2,2,1}`, `n_corr=7`, basin ~95px)으로 자동 복귀. FP 초기 자세가 크게
+> 틀려도(납작한 물체는 FP가 tilt를 60~90° 흩어 못 정함) srt3d 가 실루엣으로 끌어오게 하는 것.
+> 호출부는 그대로 — C ABI/인자 불변, 동작만 달라짐. 상세는 §9.2.
+
 ### 3.3 `srt3d_track_rgb`
 ```cpp
 // srt3d_uwp.cpp:106
@@ -547,6 +553,13 @@ g_body = std::make_shared<srt3d::Body>(
 //               ^^^^ geometry_unit_in_meter = 1.0
 ```
 `1.0`이므로 **`.obj`의 좌표값이 곧 미터**다. mesh를 mm로 만들면 여기를 `0.001f`로 바꿔야 한다.
+
+> **[2026-07-23] pose 원점이 bbox 중심으로 바뀜.** 예전 mesh는 원점이 bbox 중심에서 10.3cm
+> 치우쳐 있었다(→ `.meta`의 `max_body_diameter`가 0.43으로 2배 과대 → 템플릿에 물체가 절반
+> 크기로 렌더 → 윤곽 성김 → tilt 구분 불가). **bbox 중심으로 재정렬**해 diameter 0.216 정상화.
+> 그 결과 `pose16`의 translation이 이제 **물체 bbox 중심** 기준이다(예전엔 치우친 원점 기준).
+> `srt3d_reset_pose`에 넣는 FP pose도 같은 재정렬 mesh 기준이라 일관됨. HUD 의 `obZ`(=`out17[11]`)
+> 해석도 바뀜 — 이제 표면이 아니라 중심 거리다. 상세는 §9.1.
 
 **(c) ob_in_cam — 확인됨(간접).** srt3d는 이 pose를 `body2world_pose`라 부르지만,
 `VirtualCamera`가 `set_camera2world_pose()`를 **한 번도 호출하지 않아** `world2camera = I`다
@@ -970,6 +983,74 @@ cmake -S $root -B $build -G "Visual Studio 17 2022" -A ARM64 `
 4. **스레드 안전성** — 현재 호출부는 메인 스레드 단일 호출을 전제한다 (§7.4)
 5. **confidence의 의미와 범위** — 현재는 pysrt3d의 KL 비율이고 stock SRT3D에도 M3T에도 없다 (§2.3)
 6. **사전 생성물** — `.meta` 같은 오프라인 산출물이 필요한지, 기기에서 만들 수 있는지 (§7.1)
+
+---
+
+## 9. 2026-07-23 변경 — 초기 자세 밀림 수정
+
+**증상:** FP 초기 pose로 등록하면 mesh가 책에서 밀리고 기울어진 채 추적됨. 여러 겹 진단 끝에
+**인터페이스는 하나도 안 바뀌고**(타입·마샬링·호출 순서 §3~4 그대로) **내부 동작/데이터만** 바뀐 3가지.
+
+### 9.1 mesh를 bbox 중심으로 재정렬 (`pose16` 원점 변경)
+
+**원인 (코드 확정):** 예전 mesh는 원점이 bbox 중심에서 **10.3cm** 치우쳐 있었다.
+srt3d 는 `maximum_body_diameter = 2.2 × (원점기준 max_radius)` (`body.cpp:143`)로 계산하므로
+원점 오프셋이 diameter를 **0.43으로 2배 부풀렸다**(실제 bbox 대각 0.211). 그 diameter는 템플릿
+생성에서 가상 카메라 focal_length를 정한다 — `focal = image_size × sphere_radius / diameter`
+(`model.cpp:544`, focal ∝ 1/diameter). 그래서 **물체가 2000×2000 템플릿에 절반 크기로 렌더** →
+윤곽선이 성기게 샘플링 → **기울어진 사다리꼴 vs 정면 사각형을 구분 못 함** → tilt 교정 실패 +
+틀린 자세에 conf 1.00.
+
+> ⚠️ **탐색선 길이는 diameter와 무관하다.** `line_length = 19세그먼트 × scales{5,2,2,1}` 고정
+> (`region_modality.cpp:500,566`). "diameter가 탐색선을 늘린다"는 오해였고, 실제 경로는
+> **템플릿 focal_length**다.
+
+**수정:** mesh를 bbox 중심으로 평행이동(정점만, UV/faces/mtl 유지) → diameter 0.216 정상화 →
+템플릿에 물체 2배 크게 렌더 → 윤곽 조밀. `.meta`는 재생성 필수(§9.3).
+
+**함의:**
+- `pose16` translation이 이제 **물체 bbox 중심** 기준(예전엔 치우친 원점). §4.4 참조.
+- HUD `obZ`(=`out17[11]`)가 표면 거리가 아니라 중심 거리. 검증: FP `tz/median ≈ 1.02~1.05`
+  (원점이 앞면 표면보다 두께 절반 ~1.2cm 뒤) 이면 mesh·FP·depth·meta 전부 정합.
+- **Cat.meta(정상 예제) 대조:** 생성 파라미터(sphere_radius 0.8, n_divides 4, n_points 200,
+  image_size 2000) 동일, diameter만 우리가 2배였음 → 원점 오프셋이 유일한 결함이었음을 확인.
+
+### 9.2 회복 부스트 (`reset_pose` 직후 12프레임)
+
+**원인:** FP 는 납작한 책의 **tilt(viewpoint)를 원리적으로 못 정한다** — 상위 25개 후보 viewpoint가
+구 전체에 60~90° 흩어짐(실측). srt3d 가 교정해야 하는데, 기본 회복 basin이 좁다: 가장 넓은
+scale 5 → `line_length 95px`(±47px). FP 가 준 크게-틀린 tilt가 그 basin 밖이라 못 끌어오고
+배경 엣지를 물어 conf 만 높음.
+
+**수정 (`srt3d_uwp.cpp`):** `reset_pose`가 `g_boost_frames=12` 설정. `track_rgb`가 부스트 중이면
+`scales{12,8,5,3,2,1}`(basin ~228px) + `n_corr=30`, 이후 평소값 복귀. `set_scales`는 `set_up_`을
+안 건드려 재-setup/모델 재생성 없이 즉시 반영(GL-free 기기에서 안전). C ABI 불변.
+
+### 9.3 Galaxy XR 격리 — HL 전용 mesh 분리
+
+FP 서버(`fp_server_gxr.py`, "gxr"=Galaxy XR)와 mesh(`FoundationPose/my_data/joke_book/...`)가
+Galaxy XR과 **공유**된다. 재정렬을 공유본에 하면 Galaxy pose가 어긋난다. 그래서:
+- 공유 `optimized_poisson_texture_mapped_mesh.obj` / `.obj.meta`는 **원상 복구**(Galaxy 그대로).
+- HL 전용 **`joke_book_hl2c.obj`**(재정렬본, 원본 `.mtl`/`.png` 공유) 신규 생성.
+  `.meta`는 `gen_meta.py --force joke_book_hl2` → `joke_book_hl2c.obj.meta`.
+- 기기 `Assets/StreamingAssets/srt3d/model.obj`(+`.meta.bytes`)는 `hl2c` 소스(바이트 동일 짝).
+- FP amp 기본은 **on 복구**(Galaxy 무영향), HL 세션만 `FP_AMP=0`(fp32 — fp16 양자화가 회전
+  후보 순위를 뭉갰음. 별개 발견).
+
+**HL2 세션 FP 실행:**
+```
+$env:FP_AMP=0
+python fp_server_gxr.py --mesh my_data/joke_book/textured_meshes/joke_book_hl2c.obj
+```
+**Galaxy 세션:** `--mesh .../optimized_poisson_texture_mapped_mesh.obj` (amp 기본 on).
+
+### 9.4 부수 발견 (인터페이스 무관, 기록만)
+
+- **trimesh OBJ 텍스처 버그:** `trimesh.load(obj)`가 `map_Kd` PNG를 **2×2 더미**로 로드
+  (실제 1814×890 무시). FP render-compare가 균일색으로 렌더 → 회전 판별 0. `fp_server_gxr.py`가
+  로드 후 실제 PNG를 `material.image`에 직접 붙여 우회. (UV 자체는 정상 — 렌더에 JOKES 또렷.)
+- **fp16 양자화:** scorer가 `torch.cuda.amp.autocast`로 돌면 `score_logit`이 fp16 정밀도로
+  뭉개져(54 근처 간격 0.03125) 252개 회전 순위가 동점화. `FP_AMP=0`으로 fp32.
 
 ---
 
