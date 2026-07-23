@@ -170,13 +170,8 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         try
         {
             _kw = new UnityEngine.Windows.Speech.KeywordRecognizer(
-                new[] { "toggle debug", "debug", "start", "register", "스타트" });
-            _kw.OnPhraseRecognized += (args) =>
-            {
-                string t = args.text.ToLower();
-                if (t == "toggle debug" || t == "debug") _showDebug = !_showDebug;
-                else _startReq = true;   // start / register / 스타트
-            };
+                new[] { "toggle debug", "debug" });
+            _kw.OnPhraseRecognized += (args) => { _showDebug = !_showDebug; };
             _kw.Start();
         }
         catch (System.Exception e) { Debug.LogWarning("[Srt3dTracker] voice init fail: " + e.Message); }
@@ -383,12 +378,12 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
     {
         while (_fpPose == null)
         {
-            // ── 시작 게이트: 등록이 곧바로 시작되지 않게. 핀치 또는 음성 "start"/"register" 대기.
+            // ── 시작 게이트: 등록이 곧바로 시작되지 않게. 핀치로 시작.
             _selecting = false; _centerBoxMode = false; _startReq = false; _wasPinch = false;
             while (!_startReq)
             {
                 if (PinchRising()) _startReq = true;
-                Hud("등록 시작하려면\n핀치 하거나 \"스타트\" 라고 말하세요");
+                Hud("등록 시작하려면 핀치(검지+엄지)");
                 yield return null;
             }
 
