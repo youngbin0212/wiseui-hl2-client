@@ -195,8 +195,9 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         if (!File.Exists(_meshPath) || !File.Exists(meta)) { Hud("FAIL: model copy"); yield break; }
 
         // 렌더용 full solid mesh 를 .obj 좌표 그대로 파싱해 Unity Mesh 로 주입 (Unity 임포터 축변환 회피).
-        // (joke_book_hl2c.obj = 26.6K verts 실제 형상. wire 대신 이걸 solid 로 → "흩뿌려짐" 대신 실제 객체 형태.)
-        yield return BuildWireMesh("srt3d/joke_book_hl2c.obj");
+        // (joke_book_hl2c.obj = 26.6K verts 실제 형상. 예전엔 데시메이트한 wireframe 을 오버레이했으나
+        //  "흩뿌려짐" 으로 보여서 full mesh 를 solid 로 그리는 쪽으로 바꿨다. wire 자산은 더 이상 쓰지 않는다.)
+        yield return BuildSolidMesh("srt3d/joke_book_hl2c.obj");
 #if UNITY_EDITOR
         Hud("Editor: native skipped");
 #else
@@ -905,7 +906,7 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         _mesh = new Mesh { name = "solidWorld" };
         mf.mesh = _mesh;
         var mat = new Material(_stdShader);
-        // 반투명 wire → opaque solid. AR 시스루라 emission 으로 형태가 잘 보이게.
+        // 반투명 wireframe → opaque solid 로 전환. AR 시스루라 emission 으로 형태가 잘 보이게.
         SetupMat(mat, new Color(0.55f, 0.75f, 0.95f, 1f), false);
         mr.material = mat;
 
@@ -1048,14 +1049,14 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
 
     // StreamingAssets 의 .obj 를 받아 파싱 → _target MeshFilter 에 주입. (UWP 는 StreamingAssets 가
     // 패키지 안이라 File.IO 불가 → UnityWebRequest 로 읽고 텍스트만 파싱, 디스크 영속 불필요.)
-    IEnumerator BuildWireMesh(string rel)
+    IEnumerator BuildSolidMesh(string rel)
     {
         string src = Application.streamingAssetsPath + "/" + rel;
         string uri = src.Contains("://") ? src : "file:///" + src.Replace("\\", "/");
         using (var req = UnityWebRequest.Get(uri))
         {
             yield return req.SendWebRequest();
-            if (req.result != UnityWebRequest.Result.Success) { Hud("wire obj 로드 실패\n" + req.error); yield break; }
+            if (req.result != UnityWebRequest.Result.Success) { Hud("mesh obj 로드 실패\n" + req.error); yield break; }
             ParseObj(req.downloadHandler.text);   // _objVerts, _tris 채움
             _worldVerts = new Vector3[_objVerts.Length];
             _mesh.Clear();
@@ -1064,7 +1065,7 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
             _mesh.SetTriangles(_tris, 0);
             _mesh.RecalculateNormals();
             _mesh.RecalculateBounds();
-            Debug.Log($"[Srt3dTracker] wire mesh: {_objVerts.Length}v {_tris.Length / 3}tri bounds={_mesh.bounds.size}");
+            Debug.Log($"[Srt3dTracker] solid mesh: {_objVerts.Length}v {_tris.Length / 3}tri bounds={_mesh.bounds.size}");
         }
     }
 
