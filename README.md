@@ -145,7 +145,9 @@ MSBuild.exe Build/hololens2_wiseui.sln -restore \
 
 - `_procMaxW` (기본 760) — 캡처 선택 목표 + SRT3D 입력 폭 상한. 초과 시 CPU downscale + K 동일비율 스케일.
 - `_initMode`, `_centerBoxW` — 등록 방식/박스 크기
-- `_initUrl` / `_initBoxUrl` — PC IP (기본 `192.168.0.7:8002`)
+- `_serverBaseUrl` — PC init_server 주소. **Inspector 에 노출된 필드**다
+  (`Srt3dTracker` 컴포넌트 ▸ Server Base Url). 형식 `http://<SERVER_IP>:<PORT>`,
+  기본값 `http://127.0.0.1:8002`. `/init` 과 `/init_box` 경로는 여기서 파생된다
 - `_axisFlip` — OpenCV↔Unity 렌더 좌표
 
 해상도 처리: PhotoCapture가 4K를 고르면 SRT3D region matching이 과부하되어 추적이 멈추고 fps가
@@ -172,7 +174,8 @@ MSBuild.exe Build/hololens2_wiseui.sln -restore \
   해상도로 안 풀리면 **MediaFrameReader(비디오 프레임 소스)** 로 전환 필요(설계 변경).
 - **Depth 없음** — SRT3D가 RGB-only라 원근/스케일을 실루엣으로만 추정. 해상도가 낮으면 취약.
 - **텍스처 렌더** — 현재 `model.obj`를 solid opaque로 렌더. 실제 표지 텍스처는 OBJ+MTL+UV 로딩 추가 필요.
-- 서버 IP/모델이 하드코딩(`192.168.0.x`, `book`/`joke_book`) — 설정화 필요.
+- ~~서버 IP 하드코딩~~ → `_serverBaseUrl` 로 Inspector 노출 완료.
+  대상 모델명(`book` / `joke_book`)은 아직 `_boxText` 등에 하드코딩 — 설정화 필요.
 
 ---
 

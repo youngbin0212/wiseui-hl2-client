@@ -14,7 +14,7 @@
 //
 // 사전(PC): sam3_server(5556) + fp_server_gxr(8000,joke_book) + init_server.py(8002)
 // 빌드 전: Capabilities WebCam + InternetClient + PrivateNetworkClientServer.
-// [TUNE] _initUrl (PC IP) / 좌표 후보는 C_CV2U·S_LEGACY 주석 참조
+// [TUNE] _serverBaseUrl (PC init_server 주소, Inspector 노출) / 좌표 후보는 C_CV2U·S_LEGACY 주석 참조
 
 using System.Collections;
 using System.Collections.Generic;
@@ -79,8 +79,14 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
 
     // [TUNE]
     int _pvWidth = 760, _pvHeight = 428;
-    string _initUrl = "http://192.168.0.7:8002/init";          // 텍스트 자동검출(구 방식, fallback)
-    string _initBoxUrl = "http://192.168.0.7:8002/init_box";   // 크롭 등록(두 모서리 pinch)
+    // PC init_server 주소. Inspector 에서 실험 환경에 맞게 바꿀 것 (기본값은 로컬 루프백).
+    // 두 엔드포인트가 호스트·포트를 공유하므로 base 만 노출하고 경로는 파생시킨다.
+    [SerializeField]
+    [Tooltip("PC init_server 의 base URL. 형식: http://<PC-IP>:<PORT> (끝의 / 는 있어도 됨)")]
+    string _serverBaseUrl = "http://127.0.0.1:8002";
+    string ServerBase { get { return (_serverBaseUrl ?? "").TrimEnd('/'); } }
+    string InitUrl { get { return ServerBase + "/init"; } }          // 텍스트 자동검출(구 방식, fallback)
+    string InitBoxUrl { get { return ServerBase + "/init_box"; } }   // 크롭 등록(두 모서리 pinch)
     // 초기 등록 방식 [TUNE _initMode]:
     //   TextCenter = 객체를 중앙에 두고 SAM text('book') 자동검출 (구 방식, GET /init)
     //   CenterBox  = 화면 중앙 고정 박스에 객체 맞추고 air-tap 1회 (POST /init_box)
@@ -322,7 +328,7 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         while (_fpPose == null)
         {
             Hud("FP 초기 pose 요청 중...\n(책을 시야 중앙에 두세요)");
-            using (var req = UnityWebRequest.Get(_initUrl))
+            using (var req = UnityWebRequest.Get(InitUrl))
             {
                 req.timeout = 130;
                 yield return req.SendWebRequest();
@@ -856,7 +862,7 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
                                  box[0], box[1], box[2], box[3]);
         string json = "{\"box\":" + b +
                       (string.IsNullOrEmpty(_boxText) ? "" : ",\"text\":\"" + _boxText + "\"") + "}";
-        using (var req = new UnityWebRequest(_initBoxUrl, "POST"))
+        using (var req = new UnityWebRequest(InitBoxUrl, "POST"))
         {
             req.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(json));
             req.downloadHandler = new DownloadHandlerBuffer();
