@@ -209,9 +209,86 @@ native\srt3d_uwp\build_arm64_uwp\Release\srt3d_uwp.dll
 
 ---
 
-## 5. Known issues
+## 5. 모델 템플릿 (`.meta`)
 
-### 5.1 `-DOpenCV_STATIC=ON` 은 효과가 없다
+`Assets/StreamingAssets/srt3d/model.obj.meta.bytes` (약 15.7 MB) 는
+SRT3D 의 **sparse viewpoint model** 이다. 여러 시점에서 본 객체 윤곽 템플릿의 묶음으로,
+추적 초기화에 반드시 필요하다.
+
+### 5.1 없으면 추적이 시작되지 않는다
+
+```
+Srt3dTracker.cs      StreamingAssets 의 model.obj.meta.bytes 를
+                     persistentDataPath 에 model.obj.meta 로 복사
+srt3d_uwp.cpp        Model(name, body, mesh + ".meta") → SetUp()
+                     실패 시: "model SetUp failed (.meta load?)" 로 srt3d_init 이 0 반환
+```
+
+### 5.2 기기에서 만들 수 없다
+
+원본 SRT3D 는 `.meta` 가 없으면 `NormalRenderer`(OpenGL) 로 자동 생성한다.
+UWP 에는 데스크톱 OpenGL 이 없어 이 빌드는 `SRT3D_NO_GL` 로 렌더러 계열을 통째로 제외했고,
+그 결과 **로드만 가능하고 생성은 불가능**하다:
+
+```cpp
+// srt3d/src/model.cpp
+#ifdef SRT3D_NO_GL
+  std::cerr << "[SRT3D_NO_GL] GenerateModel disabled — precomputed .meta required"
+```
+
+→ GL 이 되는 PC 에서 미리 만들어 배포해야 한다.
+
+### 5.3 재생성 절차
+
+`docs/SRT3D_INTERFACE.md` §7.1 에 기록된 절차다:
+
+```bash
+conda activate srt3d
+cd <pysrt3d>
+python gen_meta.py <object_name>
+# HL 전용 mesh 를 쓸 때는 --force 로 강제 재생성 (§9.3)
+#   python gen_meta.py --force <object_name>
+```
+
+생성 파라미터는 `sphere_radius 0.8`, `n_divides 4`, `n_points 200`, `image_size 2000` 이다
+(`docs/SRT3D_INTERFACE.md` §9.1 의 정상 예제 대조값).
+
+> ⚠️ **`gen_meta.py` 는 이 저장소에 없다.** pysrt3d 에 있는 스크립트이고,
+> 그 pysrt3d 는 **포크 시점이 기록되지 않은** 의존성이다([`MODIFICATIONS.md`](MODIFICATIONS.md) §1).
+> conda 환경 `srt3d` 의 구성도 문서화돼 있지 않다.
+> 따라서 **제3자가 바이트 호환되는 `.meta` 를 재생성할 수 있다는 보장이 없다.**
+
+### 5.4 `.meta` 는 특정 mesh 와 짝이다
+
+`.meta` 는 그것을 만들 때 쓴 mesh 의 기하에 묶인다. mesh 를 바꾸면 `.meta` 도 반드시
+다시 만들어야 하고, 짝이 어긋나면 추적이 조용히 틀어진다.
+
+실제 사례가 `docs/SRT3D_INTERFACE.md` §9.1 에 있다 — mesh 원점이 bbox 중심에서
+10.3 cm 벗어나 있어 `max_body_diameter` 가 0.4287 로 2배 부풀었고, 그 값이 템플릿
+생성의 가상 카메라 focal 을 정하는 탓에 물체가 절반 크기로 렌더돼 tilt 를 구분하지
+못했다. mesh 를 재정렬한 뒤 `.meta` 를 재생성해 0.2157 로 정상화했다.
+§9.3 은 배포본이 **"바이트 동일 짝"** 이어야 한다고 명시한다.
+
+**정상 범위:** `max_body_diameter` 0.19 ~ 0.22. 0.43 처럼 2배로 나오면 원점 오프셋 재발이다.
+
+### 5.5 그래서 저장소에 포함해 배포한다
+
+`.meta` 는 생성 산출물이므로 원칙적으로는 커밋 대상이 아니다. 그럼에도 포함하는 이유:
+
+1. **없으면 앱이 동작하지 않는다** (§5.1) — 선택적 자산이 아니다.
+2. **기기에서 만들 수 없다** (§5.2) — 클론한 사람이 런타임에 해결할 방법이 없다.
+3. **재생성이 보장되지 않는다** (§5.3) — 생성 스크립트가 포크 시점 미기록 외부 저장소에 있다.
+4. **mesh 와 짝이 맞아야 한다** (§5.4) — mesh 만 배포하고 `.meta` 를 빼면 짝 불일치 위험이 생긴다.
+5. 크기(약 15.7 MB)가 GitHub 의 파일당 경고선(50 MB)·차단선(100 MB) 대비 여유롭다.
+
+"클론하면 바로 돌아간다"는 가치가 저장소 용량 절감보다 크다고 판단했다.
+**다른 객체로 바꾸려면** mesh 와 `.meta` 를 §5.3 절차로 함께 다시 만들어야 한다.
+
+---
+
+## 6. Known issues
+
+### 6.1 `-DOpenCV_STATIC=ON` 은 효과가 없다
 
 `build_uwp_arm64.ps1` 이 이 인자를 넘기지만 `OpenCVConfig.cmake` 가 소비하지 않아
 configure 때 경고가 뜬다:
@@ -224,7 +301,7 @@ CMake Warning: Manually-specified variables were not used by the project:
 **정적 링크 여부는 OpenCV 를 빌드하는 시점에 결정되며**(§2.1 의 `BUILD_SHARED_LIBS=OFF`),
 소비하는 쪽에서 바꿀 수 없다. 기존 스크립트에 남아 있으나 **무해하다.**
 
-### 5.2 `warning C4819` 가 수십 줄 쏟아진다 — 무해
+### 6.2 `warning C4819` 가 수십 줄 쏟아진다 — 무해
 
 한국어 Windows(코드 페이지 949) 에서 빌드하면 다음 경고가 **대량으로** 발생한다:
 
@@ -243,7 +320,7 @@ warning C4819: 현재 코드 페이지(949)에서 표시할 수 없는 문자가
 마지막 줄에 `srt3d_uwp.vcxproj -> ...\Release\srt3d_uwp.dll` 이 나왔는지로 판단할 것.
 코드 페이지가 UTF-8 인 환경(영문 Windows 등)에서는 나타나지 않는다.
 
-### 5.3 `warning MSB8021` — 무해
+### 6.3 `warning MSB8021` — 무해
 
 ```
 warning MSB8021: 'CharacterSet' 변수의 'MultiByte' 값은
@@ -253,7 +330,7 @@ warning MSB8021: 'CharacterSet' 변수의 'MultiByte' 값은
 CMake 가 생성한 **`ZERO_CHECK` / `ALL_BUILD` 유틸리티 프로젝트**에서만 발생하며
 `srt3d_uwp` 타깃과는 무관하다. 산출 DLL 에 영향이 없다.
 
-### 5.4 PowerShell 5.1 에서 `2>&1` 을 쓰면 성공이 실패로 보인다
+### 6.4 PowerShell 5.1 에서 `2>&1` 을 쓰면 성공이 실패로 보인다
 
 cmake 출력을 `2>&1` 로 리다이렉트하면 PowerShell 5.1 이 **경고를 ErrorRecord 로 승격**시켜
 `NativeCommandError` 를 내고 `$?` 를 `$false` 로 만든다. cmake 자체는 exit 0 인데도 그렇다.
@@ -265,17 +342,7 @@ cmake 출력을 `2>&1` 로 리다이렉트하면 PowerShell 5.1 이 **경고를 
 ✅ .\build_uwp_arm64.ps1 ...
 ```
 
-### 5.5 `.meta` 는 기기에서 만들 수 없다
-
-GL-free 빌드라 `Model::GenerateModel()` 이 비활성이다
-(`srt3d/src/model.cpp` — `[SRT3D_NO_GL] GenerateModel disabled — precomputed .meta required`).
-모델 템플릿 `.meta` 는 **GL 이 되는 PC 에서 오프라인 생성**해
-`Assets/StreamingAssets/srt3d/` 로 배포해야 한다.
-상세: `MODIFICATIONS.md` §2.2, `docs/SRT3D_INTERFACE.md` §7.1.
-
----
-
-## 6. 관련 문서
+## 7. 관련 문서
 
 | 문서 | 내용 |
 |---|---|
