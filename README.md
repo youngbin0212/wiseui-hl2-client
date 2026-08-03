@@ -1,4 +1,4 @@
-# wiseui-hl2-object-tracking — On-device 3D Object Tracking (HoloLens 2)
+# [WISEUI 과제] On-device 3D Object Tracking (HoloLens 2)
 
 HoloLens 2에서 **RGB 기반 3D 객체 추적(SRT3D)** 을 온디바이스로 수행하는 Unity(UWP/IL2CPP) 앱.
 초기 pose는 PC의 **FoundationPose**(depth+mask)로 잡고, 그 이후 프레임은 디바이스에서 **SRT3D**
@@ -25,30 +25,50 @@ HoloLens 2에서 **RGB 기반 3D 객체 추적(SRT3D)** 을 온디바이스로 �
 
 ## 아키텍처
 
-```
-┌───────────────────────── HoloLens 2 (이 저장소) ─────────────────────────┐
-│  Srt3dTracker.cs                                                          │
-│   1) hl2ss(PV+depth) 스트림 ON  ──(GET /init 또는 POST /init_box)────────┐ │
-│   2) 등록: 화면에서 대상 영역(box) 지정 → 서버가 초기 pose 회신          │ │
-│   3) hl2ss OFF → PhotoCapture(PV, RGB) ON                                │ │
-│   4) 매 프레임 srt3d_track_rgb() → mesh 오버레이 렌더                     │ │
-│  Srt3dNative.cs → Assets/Plugins/WSA/ARM64/srt3d_uwp.dll (SRT3D 코어)     │ │
-└──────────────────────────────────────────────────────────────────────────┘
-                                     │ (같은 PV 카메라 기준 pose — 좌표 변환 없음)
-┌──────────────────────────────── PC ────────────────────────────────────┐ │
-│  init_server.py (8002)  ◄──────────────────────────────────────────────┘ │
-│    /init      : SAM3(text='book') → mask → FP /register                   │
-│    /init_box  : device box → SAM3(box 프롬프트) → mask → FP /register_with_box │
-│  sam3_server (ZMQ 5556)         : 텍스트/박스 프롬프트 세그멘테이션        │
-│  fp_server_gxr.py (8000)        : FoundationPose 초기 pose 추정           │
-│  hl2_capture.py                 : hl2ss 에서 PV(640x360)+depth+K grab      │
-└───────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph HL["HoloLens 2 — 이 저장소"]
+        direction TB
+        T["Srt3dTracker.cs<br/>등록 UI · 추적 루프 · 렌더"]
+        N["Srt3dNative.cs<br/>P/Invoke 바인딩"]
+        D["srt3d_uwp.dll<br/>SRT3D 코어 · UWP ARM64"]
+        T --> N --> D
+    end
+
+    subgraph PC["PC 서버 — 이 저장소에 없음"]
+        direction TB
+        C["hl2_capture.py<br/>PV 640x360 + depth + K grab"]
+        I["init_server.py<br/>HTTP :8002"]
+        S["sam3_server.py<br/>ZMQ :5556<br/>세그멘테이션"]
+        F["fp_server_gxr.py<br/>HTTP :8000<br/>FoundationPose"]
+        C --> I
+        I -->|"text / box 프롬프트"| S
+        S -->|"mask"| I
+        I -->|"/register · /register_with_box"| F
+        F -->|"ob_in_cam"| I
+    end
+
+    T -->|"POST /init · /init_box"| I
+    I -->|"초기 pose (pose16)"| T
+    T -.->|"hl2ss PV+depth 스트림"| C
 ```
 
-- **초기 pose**: FoundationPose가 depth+mask로 `ob_in_cam`(OpenCV) 6DoF pose 산출.
-- **추적**: SRT3D는 RGB-only. 매 프레임 mesh를 내부 K로 투영해 객체 윤곽과 맞춰 pose 갱신.
-- **좌표**: FP와 SRT3D가 같은 PV 카메라 기준이라 재투영/변환 없음. Unity 렌더는
-  `world = cam2world · S · M` (S = 180° about X, OpenCV↔Unity 카메라 규약 차이).
+> **핵심:** FoundationPose 와 SRT3D 가 **같은 PV 카메라를 기준으로 pose 를 다룬다.**
+> 그래서 서버가 준 초기 pose 를 디바이스가 그대로 받아 쓴다 — **재투영도 좌표 변환도 없다.**
+
+### 실행 흐름
+
+1. **hl2ss(PV+depth) 스트림 ON** — PC 가 기기에서 프레임을 가져갈 수 있게 연다.
+2. **등록** — 화면에서 대상 영역(box)을 지정하면 서버가 초기 pose 를 회신한다.
+3. **hl2ss OFF → PhotoCapture(PV, RGB) ON** — PV 카메라는 배타 점유라 둘을 동시에 못 쓴다.
+4. **매 프레임 `srt3d_track_rgb()`** → mesh 오버레이 렌더.
+
+### 역할 분담
+
+- **초기 pose**: FoundationPose 가 depth+mask 로 `ob_in_cam`(OpenCV) 6DoF pose 산출.
+- **추적**: SRT3D 는 RGB-only. 매 프레임 mesh 를 내부 K 로 투영해 객체 윤곽과 맞춰 pose 갱신.
+- **렌더 좌표**: Unity 는 `world = cam2world · S · M`
+  (S = 180° about X, OpenCV↔Unity 카메라 규약 차이).
 
 ---
 
@@ -246,14 +266,89 @@ MSBuild.exe Build/hololens2_wiseui.sln -restore \
 > ⚠️ **서버 컴포넌트는 아직 공개되지 않았다.** 아래는 클라이언트가 기대하는
 > 엔드포인트와 기동 구성을 적은 **인터페이스 참고용**이다.
 
-| 컴포넌트 | 엔드포인트 | 역할 |
-|---|---|---|
-| SAM3 | ZMQ `tcp://*:5556` | 텍스트/박스 프롬프트 세그멘테이션 |
-| FoundationPose | HTTP `:8000` | 초기 pose 추정 (`/register`, `/register_with_box`) |
-| init_server | HTTP `:8002` | 클라이언트 진입점 (`/init`, `/init_box`) |
+서버는 **3개 프로세스**로 나뉜다. 등록(초기 pose 추정) 한 번에 셋이 모두 관여한다.
+
+| # | 프로세스 | 실행 환경 | 엔드포인트 | 역할 |
+|---|---|---|---|---|
+| 1 | `init_server.py` | Windows | HTTP `:8002` | **클라이언트 진입점.** `/init`, `/init_box` 를 받아 SAM3 → FoundationPose 순으로 중계하고 pose 를 회신 |
+| 2 | `sam3_server.py` | WSL2 (conda) | ZMQ `tcp://*:5556` | 텍스트/박스 프롬프트 세그멘테이션 → mask 반환 |
+| 3 | `fp_server_gxr.py` | WSL2 → Docker | HTTP `:8000` | FoundationPose 초기 pose 추정 (`/register`, `/register_with_box`) |
+
+`init_server` 만 디바이스와 직접 통신한다. 나머지 둘은 `init_server` 가 호출한다.
+PV+depth+K 프레임은 `hl2_capture.py` 가 hl2ss 로 기기에서 가져온다
+(별도 리스닝 프로세스가 아니라 `init_server` 가 쓰는 모듈로 보인다 — **[확인 필요]**).
 
 환경변수: `HL2_HOST`(hl2ss 기기 IP), `FP_URL`, `SAM3_ADDR`, `OBJ_TEXT`, `INIT_PORT`.
-디바이스 앱 켜기 전 **standalone hl2ss 앱은 종료**(카메라 충돌 방지), 서버 3개 기동 확인.
+
+### 외부 의존성
+
+| 프로젝트 | URL | 실행 방식 |
+|---|---|---|
+| **FoundationPose** | <https://github.com/NVlabs/FoundationPose> | **Docker 기반.** WSL2 에서 컨테이너로 실행 |
+| **SAM3** | <https://github.com/facebookresearch/sam3> | **WSL2 conda 환경에서 직접 실행.** Docker 불필요 |
+
+설치·모델 가중치 준비는 각 upstream 문서를 따를 것. 여기서는 다루지 않는다.
+
+### 워크스페이스 배치
+
+> 🚫 **서버 스크립트 4개는 아직 공개되지 않았다** — `init_server.py`, `hl2_capture.py`,
+> `fp_server_gxr.py`, `sam3_server.py`. **현재 이 파일들을 받을 수 있는 곳은 없다.**
+> 아래 구조는 공개 시 어디에 놓이는지를 미리 밝혀두는 것이다.
+
+```
+<WORKSPACE>/
+├── hl2_pipeline/                  # 독립 폴더 (upstream 없음)
+│   ├── init_server.py             🚫 미공개
+│   └── hl2_capture.py             🚫 미공개
+├── FoundationPose/                # git clone NVlabs/FoundationPose
+│   ├── my_data/joke_book/textured_meshes/*.obj
+│   └── fp_server_gxr.py           🚫 미공개 — upstream 에 없음. 여기에 배치
+├── SAM3/                          # git clone facebookresearch/sam3
+│   └── sam3_server.py             🚫 미공개 — upstream 에 없음. 여기에 배치
+└── wiseui-hl2-object-tracking/    # 이 저장소
+```
+
+**`fp_server_gxr.py` 와 `sam3_server.py` 는 각 upstream 저장소의 루트에 놓인다.**
+그래야 해당 프로젝트의 모듈을 import 할 수 있고, 상대경로 인자가 성립한다.
+`docs/SRT3D_INTERFACE.md` §9.3 에 기록된 실행 명령이 이를 보여준다:
+
+```bash
+# 작업 디렉터리 = FoundationPose 루트
+python fp_server_gxr.py --mesh my_data/joke_book/textured_meshes/joke_book_hl2c.obj
+```
+
+`--mesh` 가 상대경로이므로 스크립트는 FoundationPose 루트에서 실행된다.
+`sam3_server.py` 도 같은 이유로 SAM3 루트에 두는 것으로 보이나, 실행 명령이
+문서에 남아 있지 않아 **[확인 필요]** 다.
+
+### mesh 배치 — 클라이언트와 같은 물체여야 한다
+
+FoundationPose 는 `--mesh` 로 obj 를 받는다. 이 mesh 와 클라이언트의
+`Assets/StreamingAssets/srt3d/model.obj` 는 **반드시 같은 물체여야 한다.**
+서로 다르면 서버가 준 초기 pose 가 디바이스의 추적 모델과 맞지 않아 **추적이 어긋난다.**
+
+> ⚠️ **HoloLens 용 mesh 는 `joke_book_hl2c.obj` 다.**
+> 같은 폴더의 `optimized_poisson_texture_mapped_mesh.obj` 는 **Galaxy XR 과 공유하는 원본**이고,
+> HoloLens 에 쓰면 안 된다. 이 원본은 원점이 bbox 중심에서 10.3 cm 벗어나 있어
+> `max_body_diameter` 가 2배로 부풀고, 그 결과 SRT3D 가 tilt 를 구분하지 못한다
+> (`docs/SRT3D_INTERFACE.md` §9.1). `joke_book_hl2c.obj` 는 그 문제를 고친 재정렬본이다.
+> `.mtl` / `.png` 텍스처는 원본과 공유한다.
+
+mesh 를 바꾸면 `.meta`(SRT3D 뷰포인트 모델)도 함께 재생성해야 한다 —
+[`native/srt3d_uwp/README.md`](native/srt3d_uwp/README.md) §5 참조.
+
+### 기동 순서
+
+```
+init_server (8002)  →  sam3_server (5556)  →  fp_server (8000)  →  HoloLens 앱
+```
+
+역순으로 켜도 무방하지만, **셋이 모두 떠 있어야 등록이 성공한다.**
+디바이스 앱을 켜기 전에 **standalone hl2ss 앱은 종료**해야 한다 — PV 카메라를 배타 점유하므로
+앱과 충돌한다.
+
+각 서버의 기동 성공 신호(로그 문구·헬스 엔드포인트)는 **[확인 필요]** — 서버 코드가
+이 저장소에 없어 확인할 수 없다. 최소 확인은 세 포트가 LISTEN 상태인지 보는 것이다.
 
 ---
 
