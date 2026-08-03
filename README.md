@@ -1,4 +1,4 @@
-# hololens2_wiseui — On-device 3D Object Tracking (HoloLens 2)
+# wiseui-hl2-object-tracking — On-device 3D Object Tracking (HoloLens 2)
 
 HoloLens 2에서 **RGB 기반 3D 객체 추적(SRT3D)** 을 온디바이스로 수행하는 Unity(UWP/IL2CPP) 앱.
 초기 pose는 PC의 **FoundationPose**(depth+mask)로 잡고, 그 이후 프레임은 디바이스에서 **SRT3D**
@@ -170,6 +170,11 @@ PC 서버(`init_server.py`, `fp_server_gxr.py`, `hl2_capture.py`, SAM3)는
 ## 빌드 & 배포
 
 Unity가 UWP VS 솔루션을 **export** 하고, MSBuild가 **Release/ARM64 msix**를 만든다.
+
+> ℹ️ 아래 `Build/` 경로와 msix 패키지명에 쓰이는 `hololens2_wiseui` 는 Unity
+> `productName`(`ProjectSettings/ProjectSettings.asset`) 에서 생성되는 이름이며,
+> **저장소 이름(`wiseui-hl2-object-tracking`) 과 무관하다.** 앱 identity 가 바뀌면
+> 기기에서 기존 앱을 지우고 재설치해야 하므로 의도적으로 그대로 두었다.
 
 ### 자동 (batchmode) — 에디터를 닫은 상태에서
 ```bash
