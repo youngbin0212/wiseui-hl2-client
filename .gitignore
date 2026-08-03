@@ -76,3 +76,25 @@ sysdiag*.zip
 # 내부 감사 보고서 — 로컬 참조용. 로컬 절대경로·사용자명을 증거로 인용하고 있고
 # 저장소의 취약점 이력을 담고 있어 공개하지 않는다.
 /docs/PUBLIC_RELEASE_AUDIT.md
+
+# ─────────────────────────────────────────────────────────────
+# 네이티브 플러그인 빌드 산출물 (native/srt3d_uwp/)
+# ⚠️ 반드시 /native/ 로 한정할 것. 전역 규칙으로 두면:
+#    *.obj  → Assets/StreamingAssets/srt3d/model.obj (Wavefront, 추적 중) 를 삼킨다
+#    ARM64/ → Assets/Plugins/WSA/ARM64/*.dll (추적 중) 를 삼킨다
+# ─────────────────────────────────────────────────────────────
+/native/**/build*/
+/native/**/CMakeFiles/
+/native/**/CMakeCache.txt
+/native/**/.vs/
+/native/**/x64/
+/native/**/ARM64/
+/native/**/*.obj
+/native/**/*.pdb
+/native/**/*.ilk
+/native/**/*.exp
+/native/**/*.lib
+/native/**/*.dll
+
+# Eigen 3.4.0 은 setup 으로 받는다 (9.5MB, 커밋하지 않음) — native/srt3d_uwp/README.md 참조
+/native/srt3d_uwp/third_party/eigen3/
