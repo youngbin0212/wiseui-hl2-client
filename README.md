@@ -80,10 +80,31 @@ flowchart TB
 | `Assets/Scripts/Srt3dNative.cs` | `srt3d_uwp.dll` P/Invoke 바인딩 |
 | `Assets/Plugins/WSA/ARM64/srt3d_uwp.dll` | SRT3D 네이티브 코어 (UWP ARM64) |
 | `Assets/Editor/BuildScript.cs` | UWP export 자동화 (`Build > Export UWP (ARM64)`) |
-| `Assets/StreamingAssets/srt3d/` | `model.obj`(렌더/추적 메시), `model.obj.meta`(SRT3D 뷰포인트 모델), `model_wire.obj` |
+| `Assets/StreamingAssets/srt3d/` | 추적 대상 mesh 와 SRT3D 뷰포인트 모델 — 아래 표 참조 |
 | `Assets/Scripts/hl2ss/` | hl2ss 스트리밍 부트스트랩 |
 | **`native/srt3d_uwp/`** | **`srt3d_uwp.dll` 의 소스와 빌드 스크립트** — [빌드 절차](native/srt3d_uwp/README.md) |
 | `docs/SRT3D_INTERFACE.md` | 네이티브 인터페이스 명세 (아래 「문서 읽는 법」 참고) |
+
+### `StreamingAssets/srt3d/` — `.meta` 가 두 의미로 겹친다
+
+이 폴더에는 `.meta` 로 끝나는 파일이 여러 개인데 **서로 다른 것**이다.
+Unity 는 `.meta` 를 자기 에셋 메타데이터로 가로채므로, SRT3D 의 템플릿은
+`.bytes` 를 덧붙여 배포하고 런타임에 이름을 바꿔 복사한다
+(`docs/SRT3D_INTERFACE.md` §4.6).
+
+| 파일 | 정체 |
+|---|---|
+| `joke_book_hl2c.obj` | 추적/렌더용 mesh (26.6K verts) |
+| `joke_book_hl2c.obj.meta` | **Unity 임포터 메타** — Unity 가 생성·관리 |
+| `joke_book_hl2c.obj.meta.bytes` | **SRT3D 뷰포인트 모델** — 진짜 템플릿 (약 15.7 MB) |
+| `joke_book_hl2c.obj.meta.bytes.meta` | **Unity 임포터 메타** (위 `.bytes` 파일에 대한) |
+
+런타임 동작: `Srt3dTracker` 가 `…obj.meta.bytes` 를 `persistentDataPath` 에
+**`…obj.meta` 로 이름을 바꿔** 복사한다. 네이티브는 mesh 경로에 `".meta"` 를 붙여
+템플릿을 찾으므로(`srt3d_uwp.cpp`), 두 파일은 `<X>.obj` / `<X>.obj.meta` 쌍이어야 한다.
+
+> 파일명이 대상 물체(`joke_book_hl2c`)를 그대로 드러낸다. 서버 쪽
+> FoundationPose `--mesh` 인자와 같은 이름이라 어느 물체인지 헷갈리지 않는다.
 
 ### 네이티브 플러그인은 재빌드할 수 있다
 
@@ -301,7 +322,7 @@ PV+depth+K 프레임은 `hl2_capture.py` 가 hl2ss 로 기기에서 가져온다
 │   ├── init_server.py             🚫 미공개
 │   └── hl2_capture.py             🚫 미공개
 ├── FoundationPose/                # git clone NVlabs/FoundationPose
-│   ├── my_data/joke_book/textured_meshes/*.obj
+│   ├── my_data/<object>/textured_meshes/    # mesh + .mtl + 텍스처 (물체별)
 │   └── fp_server_gxr.py           🚫 미공개 — upstream 에 없음. 여기에 배치
 ├── SAM3/                          # git clone facebookresearch/sam3
 │   └── sam3_server.py             🚫 미공개 — upstream 에 없음. 여기에 배치
@@ -313,7 +334,7 @@ PV+depth+K 프레임은 `hl2_capture.py` 가 hl2ss 로 기기에서 가져온다
 `docs/SRT3D_INTERFACE.md` §9.3 에 기록된 실행 명령이 이를 보여준다:
 
 ```bash
-# 작업 디렉터리 = FoundationPose 루트
+# 작업 디렉터리 = FoundationPose 루트. 아래는 예시 물체로 실제 실행했던 명령이다.
 python fp_server_gxr.py --mesh my_data/joke_book/textured_meshes/joke_book_hl2c.obj
 ```
 
@@ -323,19 +344,50 @@ python fp_server_gxr.py --mesh my_data/joke_book/textured_meshes/joke_book_hl2c.
 
 ### mesh 배치 — 클라이언트와 같은 물체여야 한다
 
+**mesh 와 텍스처는 대상 물체에 따라 달라진다.**
+본 저장소는 **지오메트리 예시(`Assets/StreamingAssets/srt3d/joke_book_hl2c.obj`)만 포함**하며,
+**FoundationPose 실행에 필요한 텍스처는 포함하지 않는다.**
+
+자신의 대상 물체를 쓰려면 스캔해서 mesh 를 만들고 `.meta` 를 재생성해야 한다 —
+절차는 [`native/srt3d_uwp/README.md`](native/srt3d_uwp/README.md) §5 참조.
+
+#### 서버와 클라이언트는 같은 mesh 를 써야 한다
+
 FoundationPose 는 `--mesh` 로 obj 를 받는다. 이 mesh 와 클라이언트의
-`Assets/StreamingAssets/srt3d/model.obj` 는 **반드시 같은 물체여야 한다.**
-서로 다르면 서버가 준 초기 pose 가 디바이스의 추적 모델과 맞지 않아 **추적이 어긋난다.**
+`joke_book_hl2c.obj` 가 **같은 물체가 아니면** 서버가 준 초기 pose 가 디바이스의 추적 모델과
+맞지 않아 **추적이 어긋난다.**
 
-> ⚠️ **HoloLens 용 mesh 는 `joke_book_hl2c.obj` 다.**
-> 같은 폴더의 `optimized_poisson_texture_mapped_mesh.obj` 는 **Galaxy XR 과 공유하는 원본**이고,
-> HoloLens 에 쓰면 안 된다. 이 원본은 원점이 bbox 중심에서 10.3 cm 벗어나 있어
-> `max_body_diameter` 가 2배로 부풀고, 그 결과 SRT3D 가 tilt 를 구분하지 못한다
-> (`docs/SRT3D_INTERFACE.md` §9.1). `joke_book_hl2c.obj` 는 그 문제를 고친 재정렬본이다.
-> `.mtl` / `.png` 텍스처는 원본과 공유한다.
+동봉된 예시 물체의 경우 두 파일이 **바이트 동일**하므로, 클라이언트 자산을 그대로 복사하면 된다:
 
-mesh 를 바꾸면 `.meta`(SRT3D 뷰포인트 모델)도 함께 재생성해야 한다 —
-[`native/srt3d_uwp/README.md`](native/srt3d_uwp/README.md) §5 참조.
+```
+Assets/StreamingAssets/srt3d/joke_book_hl2c.obj             →  <FP>/my_data/<object>/textured_meshes/joke_book_hl2c.obj
+Assets/StreamingAssets/srt3d/joke_book_hl2c.obj.meta.bytes  →  <FP>/my_data/<object>/textured_meshes/joke_book_hl2c.obj.meta
+                                              ^^^^^^
+                                       복사할 때 .bytes 를 뗄 것
+```
+
+`.bytes` 접미사는 Unity 가 `.meta` 를 가로채는 것을 피하려는 클라이언트 쪽 관례다.
+서버(FoundationPose)에는 그런 제약이 없으므로 `.meta` 로 두어야 한다.
+
+같은 파일을 두 번 커밋할 이유가 없어 서버용 사본은 따로 두지 않았다.
+
+#### 텍스처가 없으면 FoundationPose 의 회전 판별이 무너진다
+
+`docs/SRT3D_INTERFACE.md` §9.4 가 기록한다 — `trimesh` 가 `map_Kd` PNG 를 2×2 더미로
+로드하자 **FP render-compare 가 균일색으로 렌더되어 회전 판별이 0** 이 됐고,
+`fp_server_gxr.py` 가 실제 PNG 를 `material.image` 에 직접 붙여 우회했다.
+
+즉 FoundationPose 는 **표지 무늬로 자세를 판별한다.** 납작한 물체일수록 텍스처 없이는
+앞뒤·상하가 구분되지 않는다. `--mesh` 대상 obj 옆에 `.mtl` 과 텍스처 이미지를 함께 두어야 한다.
+
+> 반면 **클라이언트(SRT3D)는 텍스처가 필요 없다.** 실루엣 기반이라 mesh 를
+> solid opaque 로 렌더한다. 저장소에 `.mtl`/`.png` 없이 `.obj` 만 있는 이유다.
+
+> ⚠️ 예시 물체의 mesh 는 **bbox 중심으로 재정렬된 판본**이다. 원점이 중심에서 벗어난 mesh 를
+> 쓰면 `max_body_diameter` 가 부풀어 템플릿에 물체가 작게 렌더되고, 그 결과 SRT3D 가
+> tilt 를 구분하지 못한 채 **틀린 자세에 conf 1.00** 을 낸다 (`docs/SRT3D_INTERFACE.md` §9.1).
+> 새 mesh 를 만들 때도 원점을 bbox 중심에 맞출 것. `.meta` 헤더의 `max_body_diameter` 가
+> bbox 대각과 비슷하면 정상이고, 2배로 나오면 원점 오프셋이 남아 있다는 신호다.
 
 ### 기동 순서
 
@@ -357,7 +409,7 @@ init_server (8002)  →  sam3_server (5556)  →  fp_server (8000)  →  HoloLen
 - **Latency** — PhotoCapture(정지사진 API)를 루프로 도는 구조라 프레임당 지연이 남을 수 있음.
   해상도로 안 풀리면 **MediaFrameReader(비디오 프레임 소스)** 로 전환 필요(설계 변경).
 - **Depth 없음** — SRT3D가 RGB-only라 원근/스케일을 실루엣으로만 추정. 해상도가 낮으면 취약.
-- **텍스처 렌더** — 현재 `model.obj`를 solid opaque로 렌더. 실제 표지 텍스처는 OBJ+MTL+UV 로딩 추가 필요.
+- **텍스처 렌더** — 현재 mesh 를 solid opaque로 렌더. 실제 표지 텍스처는 OBJ+MTL+UV 로딩 추가 필요.
 - ~~서버 IP 하드코딩~~ → `_serverBaseUrl` 로 Inspector 노출 완료.
   대상 모델명(`book` / `joke_book`)은 아직 `_boxText` 등에 하드코딩 — 설정화 필요.
 

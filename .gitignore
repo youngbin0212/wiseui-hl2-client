@@ -80,7 +80,7 @@ sysdiag*.zip
 # ─────────────────────────────────────────────────────────────
 # 네이티브 플러그인 빌드 산출물 (native/srt3d_uwp/)
 # ⚠️ 반드시 /native/ 로 한정할 것. 전역 규칙으로 두면:
-#    *.obj  → Assets/StreamingAssets/srt3d/model.obj (Wavefront, 추적 중) 를 삼킨다
+#    *.obj  → Assets/StreamingAssets/srt3d/*.obj (Wavefront 추적 mesh, 추적 중) 를 삼킨다
 #    ARM64/ → Assets/Plugins/WSA/ARM64/*.dll (추적 중) 를 삼킨다
 # ─────────────────────────────────────────────────────────────
 /native/**/build*/

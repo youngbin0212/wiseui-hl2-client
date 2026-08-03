@@ -211,15 +211,16 @@ native\srt3d_uwp\build_arm64_uwp\Release\srt3d_uwp.dll
 
 ## 5. 모델 템플릿 (`.meta`)
 
-`Assets/StreamingAssets/srt3d/model.obj.meta.bytes` (약 15.7 MB) 는
+`Assets/StreamingAssets/srt3d/joke_book_hl2c.obj.meta.bytes` (약 15.7 MB) 는
 SRT3D 의 **sparse viewpoint model** 이다. 여러 시점에서 본 객체 윤곽 템플릿의 묶음으로,
 추적 초기화에 반드시 필요하다.
 
 ### 5.1 없으면 추적이 시작되지 않는다
 
 ```
-Srt3dTracker.cs      StreamingAssets 의 model.obj.meta.bytes 를
-                     persistentDataPath 에 model.obj.meta 로 복사
+Srt3dTracker.cs      StreamingAssets 의 <mesh>.obj.meta.bytes 를
+                     persistentDataPath 에 <mesh>.obj.meta 로 복사
+                     (.bytes 는 Unity 가 .meta 를 가로채는 것을 피하려는 접미사)
 srt3d_uwp.cpp        Model(name, body, mesh + ".meta") → SetUp()
                      실패 시: "model SetUp failed (.meta load?)" 로 srt3d_init 이 0 반환
 ```

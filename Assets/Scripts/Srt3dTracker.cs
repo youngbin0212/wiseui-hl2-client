@@ -188,15 +188,15 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
     {
         string d = Path.Combine(Application.persistentDataPath, "srt3d");
         Directory.CreateDirectory(d);
-        _meshPath = Path.Combine(d, "model.obj");
-        string meta = Path.Combine(d, "model.obj.meta");
-        yield return Copy("srt3d/model.obj", _meshPath);
-        yield return Copy("srt3d/model.obj.meta.bytes", meta);
+        _meshPath = Path.Combine(d, "joke_book_hl2c.obj");
+        string meta = Path.Combine(d, "joke_book_hl2c.obj.meta");
+        yield return Copy("srt3d/joke_book_hl2c.obj", _meshPath);
+        yield return Copy("srt3d/joke_book_hl2c.obj.meta.bytes", meta);
         if (!File.Exists(_meshPath) || !File.Exists(meta)) { Hud("FAIL: model copy"); yield break; }
 
         // 렌더용 full solid mesh 를 .obj 좌표 그대로 파싱해 Unity Mesh 로 주입 (Unity 임포터 축변환 회피).
-        // (model.obj = 26.6K verts 실제 형상. wire 대신 이걸 solid 로 → "흩뿌려짐" 대신 실제 객체 형태.)
-        yield return BuildWireMesh("srt3d/model.obj");
+        // (joke_book_hl2c.obj = 26.6K verts 실제 형상. wire 대신 이걸 solid 로 → "흩뿌려짐" 대신 실제 객체 형태.)
+        yield return BuildWireMesh("srt3d/joke_book_hl2c.obj");
 #if UNITY_EDITOR
         Hud("Editor: native skipped");
 #else

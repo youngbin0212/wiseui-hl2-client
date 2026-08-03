@@ -624,18 +624,18 @@ out17[16] = conf.empty() ? 0.0f : conf[0];   // 비면 0.0
 
 **① 파일 준비** (`Srt3dTracker.cs:144-148`):
 ```csharp
-_meshPath = Path.Combine(d, "model.obj");
-string meta = Path.Combine(d, "model.obj.meta");
-yield return Copy("srt3d/model.obj", _meshPath);
-yield return Copy("srt3d/model.obj.meta.bytes", meta);
+_meshPath = Path.Combine(d, "joke_book_hl2c.obj");
+string meta = Path.Combine(d, "joke_book_hl2c.obj.meta");
+yield return Copy("srt3d/joke_book_hl2c.obj", _meshPath);
+yield return Copy("srt3d/joke_book_hl2c.obj.meta.bytes", meta);
 if (!File.Exists(_meshPath) || !File.Exists(meta)) { Hud("FAIL: model copy"); yield break; }
 ```
 `srt3d_init`은 `meshPath` 하나만 받지만 **같은 위치의 `<meshPath>.meta`도 함께 읽는다**
 (`srt3d_uwp.cpp:71`). 두 파일이 짝으로 있어야 한다.
 
 > ⚠️ **Unity `.meta` 확장자 충돌.** srt3d 모델 파일이 하필 `.meta`인데 Unity가 그걸 자기
-> 에셋 메타데이터로 가로챈다. 그래서 **`model.obj.meta.bytes`로 이름을 바꿔 배포**하고
-> 런타임에 `model.obj.meta`로 복사한다. StreamingAssets는 UWP에서 패키지 안이라
+> 에셋 메타데이터로 가로챈다. 그래서 **`<mesh>.obj.meta.bytes`로 이름을 바꿔 배포**하고
+> 런타임에 `<mesh>.obj.meta`로 복사한다. StreamingAssets는 UWP에서 패키지 안이라
 > `File.IO`가 안 되므로 `UnityWebRequest`로 읽는다.
 
 **② 초기화 + 초기 pose** (`Srt3dTracker.cs:245-249`) — **첫 MFR 프레임에서 1회**:
@@ -885,7 +885,7 @@ conda activate srt3d
 cd /mnt/d/ProjectsTracking/pysrt3d
 python gen_meta.py joke_book
 ```
-현재 배포본은 **16MB**다 (`Assets/StreamingAssets/srt3d/model.obj.meta.bytes`).
+현재 배포본은 **16MB**다 (`Assets/StreamingAssets/srt3d/joke_book_hl2c.obj.meta.bytes`).
 **객체를 바꾸면 mesh와 `.meta`를 같이 다시 만들어야 한다.**
 
 > M3T로 갈아타도 이 문제는 사라지지 않는다 — M3T도 `region_model.bin` / `depth_model.bin`을
