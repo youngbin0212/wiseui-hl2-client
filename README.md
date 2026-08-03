@@ -8,6 +8,21 @@ HoloLens 2에서 **RGB 기반 3D 객체 추적(SRT3D)** 을 온디바이스로 �
 
 ---
 
+## 이 저장소에 무엇이 있고 무엇이 없나
+
+| | 내용 |
+|---|---|
+| ✅ **포함** | **HoloLens 클라이언트** — Unity(UWP/IL2CPP) 앱 전체 |
+| ✅ **포함** | **`native/srt3d_uwp/`** — SRT3D 네이티브 플러그인 **소스와 빌드 스크립트** |
+| ❌ **미포함** | **서버 컴포넌트** — `init_server.py`, `hl2_capture.py`, FoundationPose, SAM3 |
+| ❌ **미포함** | **Microsoft SDK DLL 2개** — 독점 EULA 라 재배포 불가 ([복원 절차](#microsoft-sdk-dll-복원-선택), 빌드에 필수는 아님) |
+
+> ⚠️ **서버 컴포넌트는 별도이며 아직 공개되지 않았다.**
+> 등록(초기 pose 추정) 단계가 전부 서버에 있으므로, 현재 이 저장소만으로는
+> 클라이언트를 **단독 실행할 수 없다.** 아래 「아키텍처」의 PC 쪽 블록이 그 부분이다.
+
+---
+
 ## 아키텍처
 
 ```
@@ -47,6 +62,28 @@ HoloLens 2에서 **RGB 기반 3D 객체 추적(SRT3D)** 을 온디바이스로 �
 | `Assets/Editor/BuildScript.cs` | UWP export 자동화 (`Build > Export UWP (ARM64)`) |
 | `Assets/StreamingAssets/srt3d/` | `model.obj`(렌더/추적 메시), `model.obj.meta`(SRT3D 뷰포인트 모델), `model_wire.obj` |
 | `Assets/Scripts/hl2ss/` | hl2ss 스트리밍 부트스트랩 |
+| **`native/srt3d_uwp/`** | **`srt3d_uwp.dll` 의 소스와 빌드 스크립트** — [빌드 절차](native/srt3d_uwp/README.md) |
+| `docs/SRT3D_INTERFACE.md` | 네이티브 인터페이스 명세 (아래 「문서 읽는 법」 참고) |
+
+### 네이티브 플러그인은 재빌드할 수 있다
+
+`Assets/Plugins/WSA/ARM64/srt3d_uwp.dll` 은 **사전 빌드되어 포함**돼 있어 바로 쓸 수 있지만,
+`native/srt3d_uwp/` 에 전체 소스와 빌드 스크립트가 있으므로 **소스에서 재빌드할 수 있다.**
+
+- 빌드 절차: [`native/srt3d_uwp/README.md`](native/srt3d_uwp/README.md)
+- 원본 대비 수정 내역: [`native/srt3d_uwp/MODIFICATIONS.md`](native/srt3d_uwp/MODIFICATIONS.md)
+
+사전 준비물은 **OpenCV 4.11.0 의 UWP ARM64 정적 빌드 하나뿐**이다
+(Eigen 은 CMake FetchContent 가 자동 처리, tiny_obj_loader 는 편입돼 있음).
+
+> 2026-08-03 검증: 위 절차로 빌드한 DLL 이 저장소의 기존 DLL 과
+> 크기·export 심볼·import·아키텍처가 모두 일치함을 확인했다.
+
+### Microsoft SDK DLL 복원 (선택)
+
+아래 두 DLL 은 **Microsoft 독점 EULA 라 재배포할 수 없어 저장소에 포함하지 않는다.**
+해당 EULA 는 소프트웨어를 "share, publish, distribute, or lend" 하는 것을 금지하고
+사용 범위를 개발·테스트로 한정한다.
 
 | NuGet 패키지 | 버전 | 배치 위치 |
 |---|---|---|
@@ -78,12 +115,55 @@ HoloLens 2에서 **RGB 기반 3D 객체 추적(SRT3D)** 을 온디바이스로 �
 
 ---
 
-## 요구 사항
+### 서버 컴포넌트
 
-- **Unity 2022.3.62f3** (UWP/IL2CPP, ARM64)
-- **Visual Studio 2022** (+ UWP 워크로드, ARM64 툴셋)
-- HoloLens 2 (Device Portal 활성 / 개발자 모드)
-- PC: FoundationPose + SAM3 실행 환경 (conda `my_base`, Docker 등 — 서버 절 참고)
+PC 서버(`init_server.py`, `fp_server_gxr.py`, `hl2_capture.py`, SAM3)는
+**별도이며 아직 공개되지 않았다.** 아래 「PC 서버 실행」 절은 인터페이스 참고용이다.
+
+---
+
+## 문서 읽는 법
+
+[`docs/SRT3D_INTERFACE.md`](docs/SRT3D_INTERFACE.md) 는 1090행이다. 처음부터 읽지 말고
+필요한 절만 볼 것:
+
+| 하려는 일 | 볼 곳 |
+|---|---|
+| OpenCV 를 UWP ARM64 정적으로 빌드 | **§2.4** (+ [`native/srt3d_uwp/README.md`](native/srt3d_uwp/README.md)) |
+| 네이티브 함수 호출 / 인자 타입 | **§3~4** — C ABI 6함수, 마샬링, `pose16` 규약 |
+| pose 가 어긋나거나 뒤집힐 때 | **§5** — 좌표 규약. §5.4 증상별 판별표부터 볼 것 |
+| 온디바이스 제약이 궁금할 때 | **§7** — GL 제거, `.meta` 사전생성, 스레딩, 성능 |
+| 다른 트래커로 교체 | **§8** — 최소 계약 3함수 + 확인 항목 6가지 |
+| 원본 대비 무엇을 고쳤나 | [`native/srt3d_uwp/MODIFICATIONS.md`](native/srt3d_uwp/MODIFICATIONS.md) |
+
+---
+
+## 테스트 환경
+
+검증된 조합이다. 다른 버전에서의 동작은 확인되지 않았다.
+
+### 클라이언트 / 네이티브 빌드
+
+| 항목 | 버전 |
+|---|---|
+| Unity | **2022.3.62f3** (`96770f904ca7`) — UWP/IL2CPP, ARM64 |
+| Visual Studio | **2022** v17 (MSVC 14.44.35207) + UWP 워크로드, ARM64 툴셋 |
+| Windows SDK | 10.0.26100.0 |
+| CMake | **4.2.0** |
+| OpenCV | **4.11.0** (`core`, `imgproc` 만 / WindowsStore ARM64 static) |
+| Eigen | **3.4.0** (FetchContent, `GIT_TAG 3.4.0`) |
+| 디바이스 | HoloLens 2 (Device Portal 활성 / 개발자 모드) |
+
+### 서버
+
+| 항목 | 버전 |
+|---|---|
+| GPU | **[TBD]** |
+| CUDA | **[TBD]** |
+| PyTorch | **[TBD]** |
+| OS / Python | **[TBD]** |
+
+> 서버 컴포넌트가 아직 공개되지 않아 사양이 기재되지 않았다.
 
 ---
 
@@ -156,13 +236,17 @@ MSBuild.exe Build/hololens2_wiseui.sln -restore \
 
 ---
 
-## PC 서버 실행 (별도 트리)
+## PC 서버 실행
 
-```bash
-# SAM3 (WSL/GPU)     : ZMQ tcp://*:5556
-# FoundationPose      : http://localhost:8000   (fp_server_gxr.py, joke_book 모델)
-# init_server         : conda activate my_base; cd ../hl2_pipeline; python init_server.py  (8002)
-```
+> ⚠️ **서버 컴포넌트는 아직 공개되지 않았다.** 아래는 클라이언트가 기대하는
+> 엔드포인트와 기동 구성을 적은 **인터페이스 참고용**이다.
+
+| 컴포넌트 | 엔드포인트 | 역할 |
+|---|---|---|
+| SAM3 | ZMQ `tcp://*:5556` | 텍스트/박스 프롬프트 세그멘테이션 |
+| FoundationPose | HTTP `:8000` | 초기 pose 추정 (`/register`, `/register_with_box`) |
+| init_server | HTTP `:8002` | 클라이언트 진입점 (`/init`, `/init_box`) |
+
 환경변수: `HL2_HOST`(hl2ss 기기 IP), `FP_URL`, `SAM3_ADDR`, `OBJ_TEXT`, `INIT_PORT`.
 디바이스 앱 켜기 전 **standalone hl2ss 앱은 종료**(카메라 충돌 방지), 서버 3개 기동 확인.
 
@@ -179,9 +263,60 @@ MSBuild.exe Build/hololens2_wiseui.sln -restore \
 
 ---
 
-## 크레딧
+## 출처 및 수정 내역
+
+이 프로젝트가 기반으로 삼은 외부 작업:
 
 - **SRT3D** — Stoiber et al., Sparse Region-based 3D Object Tracking
 - **FoundationPose** — NVIDIA
 - **hl2ss** — HoloLens 2 sensor streaming
 - **MRTK** — Mixed Reality Toolkit (입력/핸드 트래킹)
+
+### `native/srt3d_uwp/srt3d/` 의 파생 관계
+
+```
+Upstream:     DLR-RM/3DObjectTracking @ 11ae750
+Intermediate: pysrt3d (fork point not recorded)
+```
+
+`native/srt3d_uwp/srt3d/` 는 **pysrt3d 에서 파생된 수정 스냅샷**이며 stock SRT3D 가 아니다.
+patch series 가 아니라 **전체 스냅샷**으로 포함했는데, 이는 **pysrt3d 포크 시점이 기록되지
+않아 patch 를 뜰 기준 커밋을 특정할 수 없기 때문**이다.
+
+> 위 `11ae750` 은 **DLR-RM/3DObjectTracking 의 커밋**이다. pysrt3d 의 커밋이 아니다.
+
+수정 항목별 상세(무엇을/왜/어느 파일·함수)는
+[`native/srt3d_uwp/MODIFICATIONS.md`](native/srt3d_uwp/MODIFICATIONS.md) 참고.
+
+---
+
+## 라이선스
+
+**이 프로젝트가 직접 작성한 코드는 MIT** 다 — [`LICENSE`](LICENSE).
+
+> ### ⚠️ 다만 저장소 전체를 "MIT" 로 표기할 수 없다
+>
+> 번들된 서드파티 중 일부가 MIT 보다 강한 제약을 부과한다. 특히:
+>
+> **`hl2ss` 는 BSD 3-Clause 에 Commons Clause 조건이 붙어 있다.**
+> 이 조항은 소프트웨어의 **판매**, 그리고 그 기능에 가치가 실질적으로 의존하는
+> 제품·서비스의 유상 제공(유상 호스팅·컨설팅·지원 포함)을 금지한다.
+> 저장소가 `hl2ss.dll` 과 `Assets/Scripts/hl2ss/hl2ss.cs` 를 재배포하므로
+> **배포물 전체가 이 제약을 승계한다 — 상업적으로 판매할 수 없다.**
+>
+> Commons Clause 는 OSI 승인 오픈소스 조건이 **아니다.**
+
+그 밖에 유의할 항목:
+
+| 구성요소 | 라이선스 | 유의점 |
+|---|---|---|
+| hl2ss | BSD 3-Clause + **Commons Clause** | 판매 금지. 인용 요청 (arXiv:2211.02648) |
+| OpenCV 4.11.0 | Apache 2.0 | `srt3d_uwp.dll` 에 정적 링크됨 |
+| zlib | zlib License | OpenCV 경유로 정적 링크됨 |
+| Eigen 3.4.0 | MPL 2.0 | `EIGEN_MPL2_ONLY` 로 LGPL 미접촉 확인 |
+| TextMesh Pro | Unity Companion License | 범용 오픈소스 아님. Unity 밖 재사용 불가 |
+| ~~EmojiOne~~ | — | 라이선스 조건 불명 → **저장소에서 삭제됨** |
+| MS MR SDK DLL 2개 | 독점 EULA | **재배포 불가 — 저장소 미포함** |
+
+전체 목록·저작권 고지·라이선스 전문은
+**[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)** 참조.
