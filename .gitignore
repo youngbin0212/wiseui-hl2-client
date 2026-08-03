@@ -98,3 +98,13 @@ sysdiag*.zip
 
 # Eigen 3.4.0 은 setup 으로 받는다 (9.5MB, 커밋하지 않음) — native/srt3d_uwp/README.md 참조
 /native/srt3d_uwp/third_party/eigen3/
+
+# ─────────────────────────────────────────────────────────────
+# Microsoft 재배포 금지 DLL — 독점 EULA 라 저장소에 포함할 수 없다.
+# NuGet 에서 직접 받을 것. 복원 절차는 README.md 「Microsoft SDK DLL 복원」 참고.
+#   (현재 프로젝트 구성에서는 없어도 빌드된다 — 원상태 재현용)
+# ─────────────────────────────────────────────────────────────
+/Assets/Plugins/WSA/ARM64/Microsoft.MixedReality.EyeTracking.dll
+/Assets/Plugins/WSA/ARM64/Microsoft.MixedReality.EyeTracking.dll.meta
+/Assets/Plugins/WSA/ARM64/Microsoft.MixedReality.SceneUnderstanding.dll
+/Assets/Plugins/WSA/ARM64/Microsoft.MixedReality.SceneUnderstanding.dll.meta

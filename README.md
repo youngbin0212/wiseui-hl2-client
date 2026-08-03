@@ -48,8 +48,33 @@ HoloLens 2에서 **RGB 기반 3D 객체 추적(SRT3D)** 을 온디바이스로 �
 | `Assets/StreamingAssets/srt3d/` | `model.obj`(렌더/추적 메시), `model.obj.meta`(SRT3D 뷰포인트 모델), `model_wire.obj` |
 | `Assets/Scripts/hl2ss/` | hl2ss 스트리밍 부트스트랩 |
 
-PC 서버(`init_server.py`, `fp_server_gxr.py`, `hl2_capture.py`, SAM3)는 **별도 폴더**
-(`../hl2_pipeline`, `../FoundationPose`)에 있으며 이 저장소에 포함되지 않는다. README의 서버 절 참고.
+| NuGet 패키지 | 버전 | 배치 위치 |
+|---|---|---|
+| `Microsoft.MixedReality.EyeTracking` | 1.0.2 | `Assets/Plugins/WSA/ARM64/Microsoft.MixedReality.EyeTracking.dll` |
+| `Microsoft.MixedReality.SceneUnderstanding` | 1.0.14 | `Assets/Plugins/WSA/ARM64/Microsoft.MixedReality.SceneUnderstanding.dll` |
+
+> ℹ️ **현재 구성에서는 없어도 빌드된다.** 정적 분석으로 확인한 근거:
+> - C# 소스에 직접 호출이 없다
+> - `MRTK.WSU.asmdef` 의 `precompiledReferences` 가 비어 있다
+> - SceneUnderstanding 코드는 `com.microsoft.mixedreality.sceneunderstanding` 패키지가
+>   있을 때만 컴파일되는데(`SCENE_UNDERSTANDING_PRESENT`), `Packages/manifest.json` 에 없다
+> - MRTK 2.8.3 은 `Microsoft.MixedReality.EyeTracking` 을 참조하지 않는다
+>   (MRTK 자체 `EyeGazeProvider`/OpenXR 을 쓴다. 이 DLL 은 별개의 Extended Eye Tracking SDK 다)
+>
+> **필수가 아니라, 원래 프로젝트에 있던 상태를 재현하려는 경우에만** 아래를 따르면 된다.
+
+**복원 절차**
+
+1. NuGet 에서 패키지를 받는다 (`nuget install <패키지명> -Version <버전>`,
+   또는 <https://www.nuget.org/packages/Microsoft.MixedReality.EyeTracking> 에서 `.nupkg` 직접 다운로드 후 압축 해제)
+2. 패키지 안의 **ARM64 / UWP 용** `.dll` 을 위 표의 경로에 복사한다
+3. Unity Inspector 에서 각 DLL 을 선택하고 플랫폼을 설정한다:
+   - `Any Platform` **해제**
+   - `Windows Store Apps` **체크** → `CPU: ARM64`, `SDK: UWP`, `Scripting Backend: Il2Cpp`
+   - `Editor` 해제
+
+`.meta` 도 저장소에 없으므로 Unity 가 새로 생성한다. (`.dll` 만 빼고 `.meta` 를 남기면
+존재하지 않는 파일을 가리키는 고아 참조가 되므로 둘 다 제외했다.)
 
 ---
 
