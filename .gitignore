@@ -69,3 +69,10 @@ sysdiag*.zip
 .autocomplete.jsonl
 /Build/export*.log
 /Build/msbuild*.log
+
+# Local agent settings (may contain credentials)
+.claude/settings.local.json
+
+# 내부 감사 보고서 — 로컬 참조용. 로컬 절대경로·사용자명을 증거로 인용하고 있고
+# 저장소의 취약점 이력을 담고 있어 공개하지 않는다.
+/docs/PUBLIC_RELEASE_AUDIT.md
