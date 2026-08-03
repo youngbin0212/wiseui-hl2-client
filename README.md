@@ -94,7 +94,7 @@ Unity가 UWP VS 솔루션을 **export** 하고, MSBuild가 **Release/ARM64 msix*
 ### 자동 (batchmode) — 에디터를 닫은 상태에서
 ```bash
 # 1) Unity export (스크립트 변경 시 도메인 리로드로 1회차가 비면 2회 실행 필요)
-"D:/Unity/Editors/2022.3.62f3/Editor/Unity.exe" -batchmode -quit \
+"<UNITY_EDITOR_PATH>/2022.3.62f3/Editor/Unity.exe" -batchmode -quit \
   -projectPath . -executeMethod BuildScript.BuildUWP -logFile Build/export.log
 
 # 2) MSBuild Release ARM64 → appx/msix

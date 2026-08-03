@@ -20,12 +20,17 @@ HoloLens 2(UWP/ARM64, IL2CPP)에서 Unity C#이 네이티브 트래커를 호출
 | C# 바인딩 | `Assets/Scripts/Srt3dNative.cs` |
 | 호출부 | `Assets/Scripts/Srt3dTracker.cs` |
 | 캡처 | `Assets/Scripts/Srt3dPvCapture.cs` |
-| C 브리지 | `D:\ProjectsTracking\srt3d_uwp\srt3d_uwp.cpp` |
-| 빌드 | `D:\ProjectsTracking\srt3d_uwp\CMakeLists.txt`, `build_uwp_arm64.ps1` |
-| 코어(vendored) | `D:\ProjectsTracking\srt3d_uwp\srt3d\` (헤더 12 + .cpp 6) |
-| OpenCV | `D:\ProjectsTracking\opencv_uwp\build_uwp_arm64.ps1` |
-| upstream 대조 | `D:\ProjectsTracking\3DObjectTracking` (git `f021061`) |
-| 산출물 | `Assets/Plugins/WSA/ARM64/srt3d_uwp.dll` (854,016 B, 2026-06-09) |
+| C 브리지 | `native/srt3d_uwp/srt3d_uwp.cpp` |
+| 빌드 | `native/srt3d_uwp/CMakeLists.txt`, `native/srt3d_uwp/build_uwp_arm64.ps1` |
+| 코어(vendored) | `native/srt3d_uwp/srt3d/` (헤더 12 + .cpp 6) |
+| 수정 내역 | `native/srt3d_uwp/MODIFICATIONS.md` |
+| 빌드 절차 | `native/srt3d_uwp/README.md` |
+| OpenCV | 별도 트리에서 직접 빌드 — `native/srt3d_uwp/README.md` §2.1 참조 |
+| upstream 대조 | `DLR-RM/3DObjectTracking` (커밋 `11ae750`) |
+| 산출물 | `Assets/Plugins/WSA/ARM64/srt3d_uwp.dll` (854,528 B) |
+
+> 2026-08-03: 위 소스가 이 저장소 `native/srt3d_uwp/` 로 편입됐다.
+> 이전에는 저장소 밖의 별도 트리에 있었고 DLL 만 커밋돼 있었다.
 
 ---
 
@@ -113,7 +118,7 @@ HL2는 PV 카메라를 **배타 점유(ExclusiveControl)** 하므로 hl2ss와 MF
 > (부록 A #5).
 
 > ⚠️ **미확인 항목.** Galaxy XR의 `m3t_jni.cpp`가 **실제로 어느 모달리티를 켜는지는 확인 못 했다.**
-> 그 프로젝트(XRHandEyeTracker)가 이 머신에 없다 — `D:\ProjectsTracking` 전체를 검색해도
+> 그 프로젝트(XRHandEyeTracker)가 이 머신에 없다 — 작업 트리 전체를 검색해도
 > `m3t_jni` / `XRHandEyeTracker` 파일이 나오지 않는다.
 > 위 서술은 **M3T가 제공하는 모달리티**까지만 코드로 확인한 것이고,
 > "Galaxy XR이 depth/texture를 실제로 켰다"는 **아직 추측이다.**
@@ -769,7 +774,7 @@ GameObject transform은 identity로 두고 mesh 정점 자체를 world로 만든
 
 ### 6.1 결론 먼저: PV 왜곡 계수는 전부 0 (실측, 2026-07-22)
 
-기기(192.168.0.16)에서 hl2ss로 PV 캘리브레이션을 받아 확인했다.
+기기(`<DEVICE_IP>`)에서 hl2ss로 PV 캘리브레이션을 받아 확인했다.
 저장 위치: `hl2_pipeline/calibration/personal_video/1000_640_360/`
 
 ```
@@ -839,7 +844,7 @@ hl2ss의 PV 캘리브레이션 구조체에 `radial_distortion` / `tangential_di
 
 PV 캘리브레이션은 hl2ss로 받는다. **wiseui 앱이 기기에서 실행 중이어야 한다.**
 ```python
-import sys; sys.path.insert(0, r"D:\ProjectsTracking\hl2ss\viewer")
+import sys; sys.path.insert(0, r"<HL2SS_REPO>\viewer")
 import hl2ss, hl2ss_lnm, hl2ss_3dcv
 hl2ss_lnm.start_subsystem_pv(HOST, hl2ss.StreamPort.PERSONAL_VIDEO)
 c = hl2ss_3dcv.get_calibration_pv(OUT, HOST, hl2ss.StreamPort.PERSONAL_VIDEO,
@@ -960,7 +965,7 @@ cmake -S $root -B $build -G "Visual Studio 17 2022" -A ARM64 `
   -DCMAKE_SYSTEM_NAME=WindowsStore -DCMAKE_SYSTEM_VERSION="10.0" `
   -DCMAKE_SYSTEM_PROCESSOR=ARM64 -DCMAKE_POLICY_VERSION_MINIMUM="3.5" `
   -DOpenCV_STATIC=ON `
-  -DOpenCV_DIR="D:\ProjectsTracking\opencv_uwp\install\ARM64\vc17\staticlib"
+  -DOpenCV_DIR="<OPENCV_INSTALL>\ARM64\vc17\staticlib"
 ```
 
 > ⚠️ `OpenCV_DIR`은 **`install/ARM64/vc17/staticlib`를 직접** 가리켜야 한다.
