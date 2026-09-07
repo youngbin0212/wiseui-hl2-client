@@ -115,7 +115,6 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
     // [DIAG/입력] 핀치 감지 진단·폴백. MRTK 전역 클릭이 안 오면 손관절 거리로 직접 핀치 검출.
     int _clickCount = 0, _pinchCount = 0; bool _wasPinch = false; float _pinchDist = -1f;
     float _pinchOn = 0.03f, _pinchOff = 0.05f;     // [TUNE] 핀치 on/off 임계(히스테리시스, m)
-    string _boxText = "book";   // semantic 프롬프트. text 가 마스크를 잡아주고 box 는 영역 지정(판별)만.
     // ── UI 상태 ─────────────────────────────────────────────────────────
     bool _showDebug = false;           // 디버그 HUD 토글 (음성 "toggle debug"). 기본 꺼짐.
     string _regStatus = "";            // 등록 단계 문구 (한 줄). 운용 중엔 미사용.
@@ -863,14 +862,13 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         _handlerRegistered = false;
     }
 
-    // POST /init_box  body: {"box":[cx,cy,w,h] (,"text":"...")}  → {"ok":true,"pose":[16]}
+    // POST /init_box  body: {"box":[cx,cy,w,h]}  → {"ok":true,"pose":[16]}
     IEnumerator PostBox(float[] box)
     {
         var ci = System.Globalization.CultureInfo.InvariantCulture;
         string b = string.Format(ci, "[{0:0.####},{1:0.####},{2:0.####},{3:0.####}]",
                                  box[0], box[1], box[2], box[3]);
-        string json = "{\"box\":" + b +
-                      (string.IsNullOrEmpty(_boxText) ? "" : ",\"text\":\"" + _boxText + "\"") + "}";
+        string json = "{\"box\":" + b + "}";
         using (var req = new UnityWebRequest(InitBoxUrl, "POST"))
         {
             req.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(json));
