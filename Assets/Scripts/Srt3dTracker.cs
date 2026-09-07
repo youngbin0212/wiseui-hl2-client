@@ -186,6 +186,14 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
 
     IEnumerator Boot()
     {
+        string configSource = "fallback";
+        yield return WiseUiRuntimeConfig.Load((url, source) =>
+        {
+            _serverBaseUrl = url;
+            configSource = source;
+        });
+        Debug.Log($"[Srt3dTracker] init server={ServerBase} source={configSource}");
+
         string d = Path.Combine(Application.persistentDataPath, "srt3d");
         Directory.CreateDirectory(d);
         _meshPath = Path.Combine(d, "joke_book_hl2c.obj");

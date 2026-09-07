@@ -108,3 +108,7 @@ sysdiag*.zip
 /Assets/Plugins/WSA/ARM64/Microsoft.MixedReality.EyeTracking.dll.meta
 /Assets/Plugins/WSA/ARM64/Microsoft.MixedReality.SceneUnderstanding.dll
 /Assets/Plugins/WSA/ARM64/Microsoft.MixedReality.SceneUnderstanding.dll.meta
+
+# Generated build-time runtime configuration
+/Assets/StreamingAssets/wiseui.runtime.json
+/Assets/StreamingAssets/wiseui.runtime.json.meta
