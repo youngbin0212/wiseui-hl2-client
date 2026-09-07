@@ -41,9 +41,10 @@ std::shared_ptr<srt3d::Tracker> g_tracker;
 void (*g_log)(const char*) = nullptr;
 std::string g_last_error;
 
-// [회복 부스트] reset_pose 직후 N프레임은 탐색을 넓게 해서 FP 초기 자세(크게 틀린 tilt)를 끌어온다.
+// [회복 부스트] reset_pose 직후 N프레임은 탐색을 넓게 해서 FP 초기 자세를 끌어온다.
 //   기본 scales {5,2,2,1}(최대 95px) + n_corr=7 은 '추적' 값이라 회복 basin 이 좁다.
 //   부스트: scales {12,8,5,3,2,1}(최대 12*19=228px) + n_corr=30 → basin 확장. 수렴 후 평소 값 복귀.
+// reset 직후 넓은 탐색으로 초기 pose를 실제 RGB 윤곽에 빠르게 수렴시킨다.
 int g_boost_frames = 0;
 const std::vector<int> kScalesTrack = {5, 2, 2, 1};
 const std::vector<int> kScalesBoost = {12, 8, 5, 3, 2, 1};

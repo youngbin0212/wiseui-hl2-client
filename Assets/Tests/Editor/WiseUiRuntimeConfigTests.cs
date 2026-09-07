@@ -41,4 +41,31 @@ public class WiseUiRuntimeConfigTests
         var payload = JsonUtility.FromJson<Payload>(json);
         Assert.AreEqual("http://10.0.0.8:9000", payload.initServerUrl);
     }
+
+    [Test]
+    public void ResolveBuildUrl_UsesPackagedConfigWhenEnvironmentIsMissing()
+    {
+        string json = WiseUiRuntimeConfig.BuildJson("http://192.168.0.7:8002");
+
+        Assert.AreEqual(
+            "http://192.168.0.7:8002",
+            WiseUiRuntimeConfig.ResolveBuildUrl(null, json));
+    }
+
+    [Test]
+    public void ResolveBuildUrl_EnvironmentOverridesPackagedConfig()
+    {
+        string json = WiseUiRuntimeConfig.BuildJson("http://192.168.0.7:8002");
+
+        Assert.AreEqual(
+            "http://10.0.0.8:9000",
+            WiseUiRuntimeConfig.ResolveBuildUrl("http://10.0.0.8:9000/", json));
+    }
+
+    [Test]
+    public void ResolveBuildUrl_RejectsMissingEnvironmentAndConfig()
+    {
+        Assert.Throws<InvalidOperationException>(
+            () => WiseUiRuntimeConfig.ResolveBuildUrl(null, null));
+    }
 }

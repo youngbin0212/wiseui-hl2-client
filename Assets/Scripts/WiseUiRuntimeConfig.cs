@@ -38,6 +38,20 @@ public static class WiseUiRuntimeConfig
         return JsonUtility.ToJson(new Payload { initServerUrl = NormalizeBaseUrl(value) });
     }
 
+    public static string ResolveBuildUrl(string environmentValue, string packagedJson)
+    {
+        if (!string.IsNullOrWhiteSpace(environmentValue))
+            return NormalizeBaseUrl(environmentValue);
+        if (string.IsNullOrWhiteSpace(packagedJson))
+            throw new InvalidOperationException(
+                "Set WISEUI_INIT_SERVER_URL or provide Assets/StreamingAssets/wiseui.runtime.json.");
+
+        var payload = JsonUtility.FromJson<Payload>(packagedJson);
+        if (payload == null || string.IsNullOrWhiteSpace(payload.initServerUrl))
+            throw new InvalidOperationException("Packaged initialization server URL is missing.");
+        return NormalizeBaseUrl(payload.initServerUrl);
+    }
+
     public static IEnumerator Load(Action<string, string> completed)
     {
         string path = Path.Combine(Application.streamingAssetsPath, FileName);

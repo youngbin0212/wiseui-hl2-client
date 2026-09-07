@@ -150,6 +150,7 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
     float[] _prevPose;            // [DIAG] 직전 프레임 ob_in_cam (Δ 계산용)
     float _dT = 0f, _dR = 0f;     // [DIAG] 프레임간 translation(m) / rotation(도) 변화량
     float[] _fpPose;   // FP 초기 pose (row-major 16, ob_in_cam OpenCV)
+    Matrix4x4 _renderCorrection = Matrix4x4.identity; // depth plane 기반 object-local 보정
     Matrix4x4 _pendWorld; bool _hasPend = false;
     // per-vertex 렌더 (gxr 방식): object 정점을 매 프레임 full 4x4 로 world 변환 → Matrix4x4.rotation/
     // Transform 분해(반사행렬에서 깨짐) 회피. GO 는 identity 유지, mesh 정점 자체가 world.
@@ -162,9 +163,26 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         var cube = GameObject.Find("Cube");           // SampleScene 튜토리얼 큐브 — 불필요, 끔
         if (cube != null) cube.SetActive(false);
         _hud = CreateHud(); _target = CreateTarget();
+        StartCoroutine(HideVisualProfiler());
         SetupVoice();
         Hud("srt3d: copying model...");
         StartCoroutine(Boot());
+    }
+
+    IEnumerator HideVisualProfiler()
+    {
+        // MRTK's default profile initializes asynchronously and can re-enable
+        // diagnostics after this component's Start(). Keep the service off so
+        // initialization order cannot bring the CPU/GPU window back.
+        while (true)
+        {
+            if (CoreServices.DiagnosticsSystem != null)
+            {
+                CoreServices.DiagnosticsSystem.ShowProfiler = false;
+                CoreServices.DiagnosticsSystem.ShowDiagnostics = false;
+            }
+            yield return null;
+        }
     }
 
     // 음성 "toggle debug" → 디버그 HUD on/off. MRTK Speech 프로필(read-only)에 의존하지 않도록
@@ -321,7 +339,9 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         // cam2world 없으면(비 locatable) 렌더 스킵 — identity 로 그리면 원점에 뜸(금지).
         if (hasPose)
         {
-            Matrix4x4 M = PoseToMatrix(outv);
+            // Track with FoundationPose's raw contour solution, then preserve
+            // the depth support-plane correction in the visible pose.
+            Matrix4x4 M = PoseToMatrix(outv) * _renderCorrection;
             _candA = c2w * (C_CV2U * M);                // 앞쪽 C 만
             _candB = c2w * (C_CV2U * M * C_CV2U);       // 양쪽 conjugation
             _candD = c2w * (S_LEGACY * M);              // 현재(구 PhotoCapture 전제) — 대조군
@@ -343,8 +363,7 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
                 if (req.result == UnityWebRequest.Result.Success)
                 {
                     var j = JsonUtility.FromJson<InitResp>(req.downloadHandler.text);
-                    if (j != null && j.ok && j.pose != null && j.pose.Length >= 16)
-                        _fpPose = j.pose;
+                    if (AcceptInitResponse(j)) { }
                     else
                         Hud("FP 응답 오류\n" + req.downloadHandler.text);
                 }
@@ -390,10 +409,10 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
     //   fallback(머리 조준)에선 핀치가 확정. 어느 쪽이든 POST /init_box (box+text='book').
     IEnumerator CenterBoxRegister()
     {
-        // ── 시작 게이트: 앱 시작 후 10초 자동 시작(핀치 감지 불안정 → 시간 기반). 핀치로 조기 시작 가능.
+        // ── 시작 게이트: 앱 시작 후 5초 자동 시작(핀치 감지 불안정 → 시간 기반). 핀치로 조기 시작 가능.
         //    한 번만. 등록 실패 재시도는 곧바로 조준으로 돌아간다.
         _selecting = false; _centerBoxMode = false; _wasPinch = false;
-        float t = 10f;
+        float t = 5f;
         while (t > 0f)
         {
             if (PinchRising()) break;   // 핀치 되면 즉시 시작
@@ -709,7 +728,23 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         _gazeMrtkHud = $"mrtk OK {cal} o=({o.x:F2},{o.y:F2},{o.z:F2}) d=({d.x:F2},{d.y:F2},{d.z:F2})";
     }
 
-    [System.Serializable] class InitResp { public bool ok; public float[] pose; }
+    [System.Serializable] class InitResp
+    {
+        public bool ok;
+        public float[] pose;
+        public float[] render_correction;
+    }
+
+    bool AcceptInitResponse(InitResp response)
+    {
+        if (response == null || !response.ok || response.pose == null || response.pose.Length < 16)
+            return false;
+        _fpPose = response.pose;
+        _renderCorrection = response.render_correction != null && response.render_correction.Length >= 16
+            ? PoseToMatrix(response.render_correction)
+            : Matrix4x4.identity;
+        return true;
+    }
 
     // [DIAG] ob_in_cam(row-major 16) 의 프레임간 변화량. 카메라/객체가 움직이는데 Δ≈0 이면
     // srt3d 가 pose 를 갱신 못 하는 것(=내부 K 로 투영 실패 가능성) → 근본 원인 확정용.
@@ -862,7 +897,7 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
         _handlerRegistered = false;
     }
 
-    // POST /init_box  body: {"box":[cx,cy,w,h]}  → {"ok":true,"pose":[16]}
+    // POST /init_box -> raw tracking pose + optional object-local render correction.
     IEnumerator PostBox(float[] box)
     {
         var ci = System.Globalization.CultureInfo.InvariantCulture;
@@ -879,7 +914,7 @@ public class Srt3dTracker : MonoBehaviour, IMixedRealityPointerHandler
             if (req.result == UnityWebRequest.Result.Success)
             {
                 var j = JsonUtility.FromJson<InitResp>(req.downloadHandler.text);
-                if (j != null && j.ok && j.pose != null && j.pose.Length >= 16) _fpPose = j.pose;
+                if (AcceptInitResponse(j)) { }
                 else Hud("등록 응답 오류\n" + req.downloadHandler.text);
             }
             else Hud("등록 요청 실패\n" + req.error);

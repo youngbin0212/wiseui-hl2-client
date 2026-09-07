@@ -21,14 +21,15 @@ public class BuildScript
     public static void BuildUWP()
     {
         var scenes = EditorBuildSettings.scenes.Where(s => s.enabled).Select(s => s.path).ToArray();
-        string initServerUrl = WiseUiRuntimeConfig.NormalizeBaseUrl(
-            Environment.GetEnvironmentVariable("WISEUI_INIT_SERVER_URL"));
         string configPath = Path.GetFullPath(RuntimeConfigPath);
         string metaPath = configPath + ".meta";
         bool hadConfig = File.Exists(configPath);
         bool hadMeta = File.Exists(metaPath);
         byte[] previousConfig = hadConfig ? File.ReadAllBytes(configPath) : null;
         byte[] previousMeta = hadMeta ? File.ReadAllBytes(metaPath) : null;
+        string initServerUrl = WiseUiRuntimeConfig.ResolveBuildUrl(
+            Environment.GetEnvironmentVariable("WISEUI_INIT_SERVER_URL"),
+            hadConfig ? Encoding.UTF8.GetString(previousConfig) : null);
 
         BuildReport report;
         try
